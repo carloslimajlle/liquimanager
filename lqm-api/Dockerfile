@@ -19,7 +19,7 @@ COPY lqm-api lqm-api
 RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp -q -pl lqm-api -am -DskipTests package \
  && cp lqm-api/target/lqm-api-*.jar /app.jar
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 RUN useradd --system --uid 10001 lqm \
  && mkdir -p /var/lib/lqm/blobs \
  && chown -R lqm /var/lib/lqm
