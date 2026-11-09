@@ -22,7 +22,7 @@ COPY lqm-cli lqm-cli
 RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp -q -pl lqm-cli -am -DskipTests package \
  && cp lqm-cli/target/lqm.jar /lqm.jar
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 # git: `lqm runner` clones the changelog at the commit of the original operation.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
