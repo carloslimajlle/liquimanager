@@ -1,6 +1,6 @@
 # Build context is the repository root (the API depends on the engine, the client and the collector):
 #   docker build -f lqm-api/Dockerfile -t lqm-api .
-FROM maven:3.9-eclipse-temurin-21 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 WORKDIR /w
 COPY pom.xml ./
 COPY lqm-policy-engine/pom.xml lqm-policy-engine/
