@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>All Operations</title><link rel="stylesheet" href="styles.css"></head>
+<body data-nav="operations" data-crumbs="Operações|Todas as operações">
+<div class="page-head"><div><h1>All Operations</h1><p>Todo update, check e diff de todos os projetos, em uma única trilha de auditoria</p></div>
+  <div class="right"><span class="input">Filtrar operações…</span><span class="btn">Status ▾</span><span class="btn">Tipo ▾</span><span class="btn">Ambiente ▾</span></div></div>
+<div class="kpis">
+  <div class="card kpi hero"><div class="label">Operações nesta semana</div><div class="value">1.284<span class="trend" style="color:#fff">↗ +68%</span></div></div>
+  <div class="card kpi"><div class="label">Taxa de sucesso</div><div class="value v-success">94,2% <small>1.210 com sucesso</small></div></div>
+  <div class="card kpi"><div class="label">Duração mediana</div><div class="value">1,1<small>s por operação</small></div></div>
+  <div class="card kpi"><div class="label">Barrados antes de PRD</div><div class="value v-warning">74 <small>falhas, 68 em não-PRD</small></div></div>
+</div>
+<div class="card">
+<table>
+  <thead><tr><th>Comando</th><th>Status</th><th>Data</th><th>Tipo</th><th>Duração</th><th>Banco</th><th>Changelog</th><th>Projeto</th><th>Executor</th></tr></thead>
+  <tbody>
+    <tr><td><span class="cmd">update</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:07:25</td><td class="mono muted">database-change</td><td>1.106 ms</td><td><a>Core HML</a> <span class="env env-hml">HML</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">pipeline</td></tr>
+    <tr><td><span class="cmd">update</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:07:23</td><td class="mono muted">database-change</td><td>909 ms</td><td><a>Core TST</a> <span class="env env-tst">TST</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">pipeline</td></tr>
+    <tr><td><span class="cmd checks">checks run</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:07:21</td><td class="mono muted">policy-checks</td><td>978 ms</td><td><a>Core DEV</a> <span class="env env-dev">DEV</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">l.martins</td></tr>
+    <tr class="row-danger"><td><span class="cmd">update</span></td><td><span class="badge b-danger">✕ falha</span></td><td>15/09/2026 16:07:20</td><td class="mono muted">database-change</td><td>1.438 ms</td><td><a>Core PRD</a> <span class="env env-prd">PRD</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">pipeline</td></tr>
+    <tr><td><span class="cmd rollback">rollback-one-changeset</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:07:14</td><td class="mono muted">database-change</td><td>13.800 ms</td><td><a>Core PRD</a> <span class="env env-prd">PRD</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">p.ricardo</td></tr>
+    <tr><td><span class="cmd diff">diff</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:07:12</td><td class="mono muted">drift</td><td>2.004 ms</td><td><a>Core PRD</a> <span class="env env-prd">PRD</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">scheduler</td></tr>
+    <tr><td><span class="cmd checks">checks run</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:06:58</td><td class="mono muted">policy-checks</td><td>1.211 ms</td><td><a>tos-core HML</a> <span class="env env-hml">HML</span></td><td><a>tos-changelog</a></td><td><a>tos</a></td><td class="muted">pipeline</td></tr>
+    <tr><td><span class="cmd">update</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:06:41</td><td class="mono muted">database-change</td><td>3.320 ms</td><td><a>dw-operacional PRD</a> <span class="env env-prd">PRD</span></td><td><a>dw-changelog</a></td><td><a>dw-operacional</a></td><td class="muted">pipeline</td></tr>
+    <tr><td><span class="cmd tag">tag</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:06:30</td><td class="mono muted">database-change</td><td>140 ms</td><td><a>Core HML</a> <span class="env env-hml">HML</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">pipeline</td></tr>
+    <tr><td><span class="cmd checks">checks run</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:06:28</td><td class="mono muted">policy-checks</td><td>1.505 ms</td><td><a>controlid DEV</a> <span class="env env-dev">DEV</span></td><td><a>controlid-changelog</a></td><td><a>controlid</a></td><td class="muted">m.costa</td></tr>
+    <tr><td><span class="cmd diff">diff</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:06:20</td><td class="mono muted">drift</td><td>1.188 ms</td><td><a>Core HML</a> <span class="env env-hml">HML</span></td><td><a>gate-changelog</a></td><td><a>gate</a></td><td class="muted">scheduler</td></tr>
+    <tr><td><span class="cmd">update</span></td><td><span class="badge b-success">sucesso</span></td><td>15/09/2026 16:06:12</td><td class="mono muted">database-change</td><td>864 ms</td><td><a>Core TST</a> <span class="env env-tst">TST</span></td><td><a>auditoria-changelog</a></td><td><a>auditoria</a></td><td class="muted">startup (spring)</td></tr>
+  </tbody>
+</table>
+<div style="display:flex;padding:10px 14px;color:var(--text-2);font-size:12px">Mostrando 1–12 de 1.284<span style="margin-left:auto">‹ Anterior · <b>1</b> 2 3 … 107 · Próxima ›</span></div>
+</div>
+<script src="layout.js"></script>
+</body></html>

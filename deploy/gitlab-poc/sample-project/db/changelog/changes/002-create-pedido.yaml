@@ -1,0 +1,48 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-create-pedido
+      author: carlos
+      comment: Pedidos vinculados ao cliente - changeset introduzido pelo MR da POC
+      changes:
+        - createTable:
+            tableName: pedido
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: cliente_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: valor_total
+                  type: NUMERIC(12,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  defaultValue: ABERTO
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            constraintName: fk_pedido_cliente
+            baseTableName: pedido
+            baseColumnNames: cliente_id
+            referencedTableName: cliente
+            referencedColumnNames: id
+            onDelete: CASCADE
+        - createIndex:
+            indexName: idx_pedido_cliente
+            tableName: pedido
+            columns:
+              - column:
+                  name: cliente_id
+      rollback:
+        - dropTable:
+            tableName: pedido

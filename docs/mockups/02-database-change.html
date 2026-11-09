@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Database Change</title><link rel="stylesheet" href="styles.css">
+<style>
+.dc-head { display:flex; align-items:center; gap:12px; margin:6px 0 12px; }
+.dc-head h1 { font-size:24px; letter-spacing:-.02em; }
+.dc-head .ctx { margin-left:auto; display:flex; gap:16px; color:var(--text-2); }
+.dc-head .ctx b { color:var(--primary); font-weight:600; }
+.facts { display:grid; grid-template-columns: 1fr 1fr .7fr 1fr 1.6fr; gap:12px; margin-bottom:12px; }
+.facts .card { padding:12px 14px; }
+.facts .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-2); font-weight:600; }
+.facts .val { margin-top:6px; font-size:14px; }
+.diag { padding:14px 16px; margin-bottom:12px; }
+.diag-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.diag-head .right { margin-left:auto; display:flex; gap:8px; align-items:center; color:var(--text-2); font-size:12px; }
+.diag-grid { display:grid; grid-template-columns: 1fr 420px; gap:20px; }
+.diag h5 { font-size:12px; margin:10px 0 4px; }
+.envrow { display:flex; align-items:center; gap:8px; margin:5px 0; font-size:12px; }
+.envrow .when { margin-left:auto; color:var(--text-3); }
+.code { font-family:var(--mono); font-size:12px; background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:10px 12px; line-height:1.55; white-space:pre; }
+.code.err { background:#fff5f5; border-color:#f6c9c9; color:#b42318; }
+.kw { color:var(--primary); font-weight:600; }
+</style></head>
+<body data-nav="operations" data-crumbs="Operações|Mudanças de banco|database-change #e269f9ed" data-actions='<span class="pill">Ver relatório ↗</span>'>
+<div class="dc-head">
+  <h1>Database Change</h1><span class="cmd">update</span><span class="badge b-danger">falha</span><span class="mono faint">e269f9ed</span>
+  <div class="ctx"><span>Banco <b>Core PRD</b></span><span>Changelog <b>gate-changelog</b></span><span>Projeto <b>gate</b></span><span>Executado por <b>pipeline · p.ricardo</b></span></div>
+</div>
+<div class="facts">
+  <div class="card"><div class="lbl">Início</div><div class="val">15/09/2026, 16:07:03</div></div>
+  <div class="card"><div class="lbl">Fim</div><div class="val">15/09/2026, 16:07:04</div></div>
+  <div class="card"><div class="lbl">Duração</div><div class="val">1,0 s</div></div>
+  <div class="card"><div class="lbl">Deployment ID</div><div class="val mono">b2122559-7b74-4182</div></div>
+  <div class="card"><div class="lbl">Resultado · 31 changesets avaliados</div><div class="val" style="display:flex;gap:6px;flex-wrap:wrap"><span class="badge b-neutral">Executados 0</span><span class="badge b-info">Já executados 16</span><span class="badge b-warning">Filtrados 9</span><span class="badge b-danger">Falha no deploy 6</span></div></div>
+</div>
+
+<div class="card diag">
+  <div class="diag-head"><div><b>Diagnóstico da falha</b><div class="muted" style="font-size:12px">Erro, SQL executado e histórico deste changeset nos demais ambientes</div></div>
+    <div class="right">Changeset <span class="mono">SUP-3512-002-add-uk-placa-veiculo</span> <span class="badge b-danger">falha</span></div></div>
+  <div class="diag-grid">
+    <div>
+      <h5>Detalhe do erro</h5>
+<div class="code err">Msg 1505: The CREATE UNIQUE INDEX statement terminated
+because a duplicate key was found for the object name
+'dbo.veiculo' and the index name 'uk_veiculo_placa'.
+The duplicate key value is (ABC1D23).</div>
+      <div style="display:flex"><h5>SQL que falhou</h5><span class="link" style="margin:10px 0 0 auto;font-size:12px">Copiar</span></div>
+<div class="code"><span class="kw">CREATE UNIQUE INDEX</span> uk_veiculo_placa
+<span class="kw">ON</span> dbo.veiculo(placa);</div>
+      <h5>Achados de checks nesta operação</h5>
+      <div class="envrow"><span class="badge b-warning">MAJOR</span><span class="mono">UniqueIndexRequiresDedup</span><span class="muted">índice único sem changeset de deduplicação anterior</span></div>
+      <div class="envrow"><span class="badge b-info">INFO</span><span class="mono">CreateIndexOnline</span><span class="muted">sem <span class="mono">ONLINE = ON</span> em tabela &gt; 1M linhas</span></div>
+    </div>
+    <div>
+      <h5>Contexto de execução</h5>
+      <div style="display:grid;grid-template-columns:auto 1fr auto 1fr;gap:4px 10px;font-size:12px"><span class="muted">Engine</span><span class="mono">SQL Server 2022</span><span class="muted">Liquibase</span><span class="mono">5.0.0 (OSS)</span><span class="muted">Coletor</span><span class="mono">lqm-cli 1.0.0</span><span class="muted">Pipeline</span><span class="mono">GitLab #88123</span></div>
+      <h5>Este changeset nos ambientes</h5>
+      <div class="envrow"><span class="env env-dev">DEV</span><span class="badge b-success">executado</span><span class="when">10/09 · 09:14</span></div>
+      <div class="envrow"><span class="env env-tst">TST</span><span class="badge b-success">executado</span><span class="when">11/09 · 14:02</span></div>
+      <div class="envrow"><span class="env env-hml">HML</span><span class="badge b-success">executado</span><span class="when">12/09 · 08:41</span></div>
+      <div class="envrow"><span class="env env-prd">PRD</span><span class="badge b-danger">falha</span><span class="when">15/09 · 16:07</span></div>
+      <div class="muted" style="font-size:12px;margin-top:8px">Passou nos três ambientes anteriores: a diferença está nos dados de PRD, não no changeset.</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-head">Changesets nesta execução <span class="meta">7 de 31 avaliados · origem gate-changelog</span></div>
+  <table>
+    <thead><tr><th>Changeset</th><th>Autor</th><th>Resultado</th><th>Release</th><th style="text-align:right">Hora</th></tr></thead>
+    <tbody>
+      <tr class="row-danger"><td class="mono">SUP-3512-002-add-uk-placa-veiculo</td><td>p.ricardo</td><td><span class="badge b-danger">falha</span></td><td class="mono faint">—</td><td style="text-align:right" class="faint">16:07:04</td></tr>
+      <tr><td class="mono">SUP-3512-003-add-fk-agendamento-veiculo</td><td>p.ricardo</td><td><span class="badge b-neutral">não executado</span></td><td class="mono faint">release-2.1.0</td><td style="text-align:right" class="faint">—</td></tr>
+      <tr><td class="mono">SUP-3498-001-create-table-agendamento</td><td>l.martins</td><td><span class="badge b-info">já executado</span></td><td class="mono faint">release-2.0.0</td><td style="text-align:right" class="faint">—</td></tr>
+      <tr><td class="mono">SUP-3471-004-add-col-cnh-motorista</td><td>t.nunes</td><td><span class="badge b-info">já executado</span></td><td class="mono faint">release-2.0.0</td><td style="text-align:right" class="faint">—</td></tr>
+      <tr><td class="mono">SUP-3440-seed-tipo-veiculo</td><td>t.nunes</td><td><span class="badge b-warning">filtrado (context)</span></td><td class="mono faint">release-1.9.0</td><td style="text-align:right" class="faint">—</td></tr>
+    </tbody>
+  </table>
+</div>
+<script src="layout.js"></script>
+</body></html>

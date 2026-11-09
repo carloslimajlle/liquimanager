@@ -1,0 +1,17 @@
+# The rollback runner as a job of a SCHEDULED GitLab pipeline: create a schedule (CI/CD > Schedules) that runs every minute or
+# every few, on the default branch. `--once` takes at most one approved rollback and the job ends.
+#
+# LQM_URL, LQM_TOKEN (scopes runner and ingest), LQM_DB_USERNAME and LQM_DB_PASSWORD are masked project variables, and the
+# job needs network to the database, so run it on a GitLab runner that has it. The image is lqm-cli (docker build -f
+# lqm-cli/Dockerfile): it carries java and git.
+
+lqm-rollback-runner:
+  image: lqm-cli:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  variables:
+    LQM_GIT_URL: https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git
+  script:
+    - lqm runner --once
+  # Two schedules overlapping would be safe, but one at a time keeps the log readable.
+  resource_group: lqm-rollback-runner

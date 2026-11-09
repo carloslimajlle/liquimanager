@@ -1,0 +1,10 @@
+# Contract lint configuration (contracts/openapi.yaml), also used by CI.
+extends:
+  - recommended
+rules:
+  # The second server is http://localhost:8080 on purpose: it is the target of the
+  # local environment in deploy/docker-compose.yml. Keeping the rule on is just noise.
+  no-server-example.com: off
+apis:
+  liquimanager@v1:
+    root: contracts/openapi.yaml

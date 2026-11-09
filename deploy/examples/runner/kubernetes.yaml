@@ -1,0 +1,36 @@
+# The rollback runner on Kubernetes: one option among the others (docker-compose.yml, systemd, cron...), not a requirement.
+# NOT exercised in a cluster. The runner pulls its work from LiquiManager, so this needs no permission on the Kubernetes API,
+# only network to LiquiManager, to the git server and to the database.
+#
+# A Deployment keeps it running as a service. `terminationGracePeriodSeconds` lets a rollback in progress finish when the pod
+# is replaced: the runner stops asking and finishes what it has on SIGTERM.
+#
+# Prefer a schedule instead? Use a CronJob with the same pod template and `args: ["runner", "--once"]`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lqm-rollback-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lqm-rollback-runner }
+  template:
+    metadata:
+      labels: { app: lqm-rollback-runner }
+    spec:
+      terminationGracePeriodSeconds: 630
+      containers:
+        - name: runner
+          image: lqm-cli:1.0.0
+          args: ["runner"]
+          env:
+            - name: LQM_URL
+              value: https://lqm.example.internal
+            - name: LQM_GIT_URL
+              value: https://gitlab.example.internal/core/gate.git
+            - name: LQM_TOKEN              # a service token with the `runner` and `ingest` scopes
+              valueFrom: { secretKeyRef: { name: lqm-runner, key: token } }
+            - name: LQM_DB_USERNAME        # the account that may revert changesets on the target database
+              valueFrom: { secretKeyRef: { name: lqm-runner-db, key: username } }
+            - name: LQM_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: lqm-runner-db, key: password } }

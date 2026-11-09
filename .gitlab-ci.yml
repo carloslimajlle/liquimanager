@@ -1,0 +1,145 @@
+# LiquiManager's own pipeline.
+#
+# The `verify` stage runs what is cheap and already exists: contract lint
+# and the frontend build. The `database` stage is the one that truly
+# protects the schema — it starts a Postgres and exercises
+# update -> full rollback -> update, which is how the product demands every
+# changeset be reversible.
+
+stages:
+  - verify
+  - database
+  - build
+
+variables:
+  LIQUIBASE_VERSION: "5.0.4"
+  POSTGRES_JDBC_VERSION: "42.7.14"
+
+# ---------------------------------------------------------------- verify
+
+lint-contract:
+  stage: verify
+  image: node:24-alpine
+  script:
+    - npx --yes @redocly/cli@1.34.2 lint contracts/openapi.yaml
+  rules:
+    - changes: [contracts/openapi.yaml, redocly.yaml]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# -------------------------------------------------------------- database
+
+changelog-reversible:
+  stage: database
+  image: eclipse-temurin:21-jdk
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: lqm
+    POSTGRES_USER: lqm
+    POSTGRES_PASSWORD: lqm
+    JDBC: "jdbc:postgresql://postgres:5432/lqm"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl unzip >/dev/null
+    - curl -sSLo /tmp/lb.zip "https://github.com/liquibase/liquibase/releases/download/v${LIQUIBASE_VERSION}/liquibase-${LIQUIBASE_VERSION}.zip"
+    - mkdir -p /opt/liquibase && unzip -q /tmp/lb.zip -d /opt/liquibase
+    - curl -sSLo /opt/liquibase/lib/postgresql.jar "https://repo1.maven.org/maven2/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/postgresql-${POSTGRES_JDBC_VERSION}.jar"
+    - export PATH="/opt/liquibase:$PATH"
+  script:
+    - cd lqm-api/src/main/resources/db/changelog
+    - LB="liquibase --url=$JDBC --username=lqm --password=lqm --changeLogFile=db.changelog-master.xml --contexts=seed"
+    # Bring up the whole schema together with the seed data.
+    - $LB update
+    # Reverse EVERYTHING. A failure here means a changeset without a usable
+    # rollback — exactly what RollbackRequired demands of every other project.
+    - $LB rollback-count --count=40
+    # And bring it up again, to prove the rollback really left the database clean.
+    - $LB update
+    - $LB status
+  rules:
+    - changes: [lqm-api/src/main/resources/db/changelog/**/*]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ----------------------------------------------------------------- build
+
+web:
+  stage: build
+  image: node:24-alpine
+  cache:
+    key:
+      files: [lqm-web/package-lock.json]
+    paths: [lqm-web/node_modules]
+  script:
+    - cd lqm-web
+    - npm ci
+    - npm test
+    - npm run build
+  artifacts:
+    paths: [lqm-web/dist]
+    expire_in: 1 week
+  rules:
+    - changes: [lqm-web/**/*]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+java:
+  stage: build
+  image: maven:3.9-eclipse-temurin-21
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: lqm
+    POSTGRES_USER: lqm
+    POSTGRES_PASSWORD: lqm
+    # Turns on the integration tests, which skip themselves when this is unset.
+    LQM_TEST_DB_URL: "jdbc:postgresql://postgres:5432/lqm"
+    # Credentials of the monitored database for the drift and scanner tests (the ENV secret provider).
+    # It is the same Postgres: the tests give themselves a schema of their own.
+    DRIFT_TEST_USERNAME: "lqm"
+    DRIFT_TEST_PASSWORD: "lqm"
+  cache:
+    key: lqm-m2
+    paths: [.m2/repository]
+  before_script:
+    - export MAVEN_OPTS="-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  script:
+    # Runs the policy engine tests, the part of the product where a silent bug is
+    # costliest: a check that lets through what it should block only surfaces after
+    # the incident.
+    - mvn -B -ntp verify
+  artifacts:
+    when: always
+    reports:
+      junit: "**/target/surefire-reports/TEST-*.xml"
+    paths:
+      - lqm-api/target/*.jar
+      - lqm-worker/target/*.jar
+    expire_in: 1 week
+  rules:
+    - changes: [pom.xml, "lqm-*/**/*"]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+api-starts:
+  stage: build
+  needs: [java]
+  image: eclipse-temurin:21-jre
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: lqm
+    POSTGRES_USER: lqm
+    POSTGRES_PASSWORD: lqm
+    LQM_DB_URL: "jdbc:postgresql://postgres:5432/lqm"
+    SPRING_PROFILES_ACTIVE: local
+  script:
+    # A green build does not prove the application starts: here Liquibase applies
+    # the schema for real and the actuator has to answer UP.
+    - java -jar lqm-api/target/lqm-api-*.jar &
+    - |
+      curl -sf --retry 60 --retry-delay 1 --retry-connrefused --retry-all-errors         http://localhost:8080/actuator/health | tee /tmp/health.json
+      grep -q '"status":"UP"' /tmp/health.json
+    - curl -sf http://localhost:8080/v3/api-docs > /dev/null
+  rules:
+    - changes: [pom.xml, "lqm-api/**/*"]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

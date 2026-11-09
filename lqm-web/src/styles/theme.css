@@ -1,0 +1,131 @@
+/*
+ * Tokens do design system do LiquiManager.
+ *
+ * Fonte da verdade: docs/10-design-system.md e docs/mockups/styles.css.
+ * Qualquer cor, raio ou sombra usada na interface sai daqui — nada de hex solto
+ * nos componentes, senao os prints alvo e o app divergem.
+ *
+ * Tailwind 4 e configurado por CSS: o bloco @theme vira utilitarios
+ * (bg-surface, text-text-2, rounded-card, shadow-card ...).
+ */
+
+@import 'tailwindcss';
+
+@theme {
+  /* ---- Cores ---- */
+  --color-bg: #eef1f7;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f6f8fc;
+  --color-border: #e3e7f0;
+
+  --color-text: #121826;
+  --color-text-2: #5b6478;
+  --color-text-3: #8a93a6;
+
+  --color-primary: #3552e0;
+  --color-primary-600: #2a43c4;
+  --color-primary-50: #eef2ff;
+
+  --color-success: #1e8e4a;
+  --color-success-bg: #e2f6e9;
+  --color-danger: #d63a3a;
+  --color-danger-bg: #fde8e8;
+  --color-warning: #d9730d;
+  --color-warning-bg: #fff0e0;
+  --color-minor: #b7860b;
+  --color-minor-bg: #fdf5d8;
+  --color-info: #3552e0;
+  --color-info-bg: #e8edff;
+  --color-purple: #7046d6;
+  --color-purple-bg: #f0eafd;
+  /* `diff*` usa este verde-agua no CommandChip */
+  --color-teal: #12805c;
+  --color-teal-bg: #e6f6f1;
+
+  /* Fundo de linha de tabela conforme o desfecho */
+  --color-row-danger: #fff6f6;
+  --color-row-warn: #fffaf2;
+
+  /* ---- Tipografia ---- */
+  --font-sans: Inter, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  /* ---- Forma (grade de 4 px) ---- */
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-badge: 6px;
+  --radius-env: 4px;
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-overlay: 0 12px 32px rgb(16 24 40 / 0.16);
+}
+
+/*
+ * Cores por ambiente. Ficam fora do @theme porque o conjunto de ambientes e
+ * configuravel por workspace (D-15): o `color_token` gravado em `environment`
+ * casa com os nomes abaixo, e um ambiente novo so precisa de mais uma regra.
+ */
+:root {
+  --env-dev-fg: #3a4256;
+  --env-dev-bg: #eef0f4;
+  --env-tst-fg: var(--color-info);
+  --env-tst-bg: var(--color-info-bg);
+  --env-hml-fg: var(--color-warning);
+  --env-hml-bg: var(--color-warning-bg);
+  --env-prd-fg: var(--color-danger);
+  --env-prd-bg: var(--color-danger-bg);
+}
+
+/*
+ * A row that has just arrived over the live feed fades in for a second (docs/telas/01:
+ * "novas entram no topo via SSE com fade de 1 s"). The tint settles back to the row's
+ * own background, so a failed row ends up red, not blue.
+ */
+@keyframes lqm-row-enter {
+  from {
+    box-shadow: inset 0 0 0 999px var(--color-info-bg);
+    opacity: 0.35;
+  }
+  to {
+    box-shadow: inset 0 0 0 999px transparent;
+    opacity: 1;
+  }
+}
+
+.row-enter {
+  animation: lqm-row-enter 1s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-enter {
+    animation: none;
+  }
+}
+
+/*
+ * O alvo visual dos prints e claro. Nao ha tema escuro na fase 0; quando houver,
+ * e aqui que ele entra, redefinindo os --color-* sob prefers-color-scheme.
+ */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  /* 13 px / 400, conforme docs/10 § 1 */
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* RNF-13 (WCAG 2.1 AA): foco sempre visivel e navegavel por teclado. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

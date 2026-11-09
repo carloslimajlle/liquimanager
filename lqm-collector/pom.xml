@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.github.carloslimajlle.liquimanager</groupId>
+    <artifactId>liquimanager</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>lqm-collector</artifactId>
+  <name>LiquiManager :: Collector</name>
+  <description>
+    The logic every collector shares: recording what Liquibase did to each changeset,
+    evaluating the policy package before a run, and assembling the report that goes to
+    LiquiManager. The CLI and the Spring Boot starter are thin shells around this.
+
+    No Spring. Liquibase is PROVIDED: the starter runs inside services that bring their own
+    version (4.x today), so nothing here may force one on them (RNF-15).
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.github.carloslimajlle.liquimanager</groupId>
+      <artifactId>lqm-core-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.carloslimajlle.liquimanager</groupId>
+      <artifactId>lqm-policy-engine</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.liquibase</groupId>
+      <artifactId>liquibase-core</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

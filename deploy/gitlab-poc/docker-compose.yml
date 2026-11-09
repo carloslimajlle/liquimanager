@@ -1,0 +1,54 @@
+name: gitlab-poc
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: gitlab
+    restart: unless-stopped
+    hostname: host.docker.internal
+    shm_size: 256m
+    environment:
+      GITLAB_ROOT_PASSWORD: "PocLiquibase2026!"
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://host.docker.internal:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+        # POC tuning: desliga o que nao e necessario para economizar RAM
+        prometheus_monitoring['enable'] = false
+        alertmanager['enable'] = false
+        gitlab_kas['enable'] = false
+        registry['enable'] = false
+        sidekiq['max_concurrency'] = 5
+        puma['worker_processes'] = 2
+        postgresql['shared_buffers'] = "256MB"
+        gitlab_rails['gitlab_default_projects_features_container_registry'] = false
+    ports:
+      - "8929:8929"
+      - "2224:22"
+    volumes:
+      - gitlab_config:/etc/gitlab
+      - gitlab_logs:/var/log/gitlab
+      - gitlab_data:/var/opt/gitlab
+    networks:
+      - gitlab
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: gitlab-runner
+    restart: unless-stopped
+    depends_on:
+      - gitlab
+    volumes:
+      - runner_config:/etc/gitlab-runner
+      - //var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - gitlab
+
+volumes:
+  gitlab_config:
+  gitlab_logs:
+  gitlab_data:
+  runner_config:
+
+networks:
+  gitlab:
+    name: gitlab-poc

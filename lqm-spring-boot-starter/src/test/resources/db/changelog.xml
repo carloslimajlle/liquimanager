@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+  <changeSet id="SUP-1-001-create-cliente" author="p.ricardo" context="app">
+    <createTable tableName="cliente">
+      <column name="id" type="bigint"><constraints primaryKey="true"/></column>
+      <column name="nome" type="varchar(100)"/>
+    </createTable>
+    <rollback><dropTable tableName="cliente"/></rollback>
+  </changeSet>
+
+  <changeSet id="SUP-1-002-seed-only-dev" author="p.ricardo" context="seed">
+    <sql>insert into cliente (id, nome) values (1, 'x')</sql>
+    <rollback><sql>delete from cliente where id = 1</sql></rollback>
+  </changeSet>
+
+  <!-- a raw statement with no rollback: RollbackRequired must object to it -->
+  <changeSet id="SUP-1-003-raw-no-rollback" author="p.ricardo" context="app">
+    <sql>update cliente set nome = 'y' where id = 1</sql>
+  </changeSet>
+</databaseChangeLog>

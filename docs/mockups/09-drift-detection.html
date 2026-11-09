@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Drift Detection</title><link rel="stylesheet" href="styles.css">
+<style>
+.chart { padding:12px 14px; }
+.chart-head { display:flex; gap:14px; font-weight:700; font-size:13px; } .chart-head span { font-weight:400; color:var(--text-2); font-size:12px; }
+.wd .row { display:grid; grid-template-columns:90px 1fr 24px; gap:8px; align-items:center; margin:7px 0; font-size:12.5px; }
+.wd .row b { text-align:right; }
+.seg { display:flex; gap:6px; } .seg span { border:1px solid var(--border); background:#fff; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; } .seg span.on { background:var(--primary-50); color:var(--primary); border-color:#c9d3ff; }
+</style></head>
+<body data-nav="drift" data-crumbs="Operações|Drift Detection" data-actions='<span class="pill">Copiar link</span><span class="pill">Visões 1</span>'>
+<div class="page-head"><div><h1>Drift Detection</h1><p>Drift de schema, mudanças fora do processo e deploys com falha, em um só lugar</p></div>
+  <div class="right seg"><span>7 dias</span><span class="on">30 dias</span><span>90 dias</span><span>Tudo</span><span>Com drift</span><span>Limpos</span></div></div>
+<div class="kpis k6">
+  <div class="card kpi hero"><div class="label">Drift rate</div><div class="value">12,0 <small>%</small><span class="trend" style="color:#fff">↘ −54 pts</span></div><div class="sub">6 de 50 checks de drift encontraram mudanças</div></div>
+  <div class="card kpi"><div class="label">Drift detectado</div><div class="value v-warning">6<span class="trend up">↘ −27</span></div><div class="sub">operações com drift</div></div>
+  <div class="card kpi"><div class="label">Checks limpos</div><div class="value v-success">44<span class="trend up">↗ +18</span></div><div class="sub">sem drift</div></div>
+  <div class="card kpi"><div class="label">Itens de drift</div><div class="value v-warning">20<span class="trend up">↘ −319</span></div><div class="sub">9 adicionados · 10 removidos · 1 modificado</div></div>
+  <div class="card kpi"><div class="label">Média de itens</div><div class="value">3,3<span class="trend up">↘ −7,0</span></div><div class="sub">por operação com drift</div></div>
+  <div class="card kpi"><div class="label">Cobertura</div><div class="value">86,2 <small>%</small><span class="trend up">↗ 25 de 29</span></div><div class="sub">bancos monitorados</div></div>
+</div>
+<div class="grid-main-side" style="grid-template-columns:1fr 360px;margin-bottom:12px">
+  <div class="card chart"><div class="chart-head">Drift ao longo do tempo<span style="margin-left:auto">▮ Itens de drift encontrados</span><span>— Drift rate</span><span class="v-success" style="font-weight:600">↘ 86% em 8 semanas</span></div>
+    <svg viewBox="0 0 900 220" width="100%" height="220" style="margin-top:6px">
+      <g stroke="#edf0f6"><line x1="40" y1="20" x2="890" y2="20"/><line x1="40" y1="65" x2="890" y2="65"/><line x1="40" y1="110" x2="890" y2="110"/><line x1="40" y1="155" x2="890" y2="155"/><line x1="40" y1="200" x2="890" y2="200"/></g>
+      <g fill="#8a93a6" font-size="11"><text x="8" y="24">160</text><text x="8" y="69">120</text><text x="14" y="114">80</text><text x="14" y="159">40</text><text x="20" y="204">0</text></g>
+      <g fill="#93a8f4"><rect x="80" y="60" width="54" height="140" rx="3"/><rect x="185" y="85" width="54" height="115" rx="3"/><rect x="290" y="120" width="54" height="80" rx="3"/><rect x="395" y="140" width="54" height="60" rx="3"/><rect x="500" y="158" width="54" height="42" rx="3"/><rect x="605" y="170" width="54" height="30" rx="3"/><rect x="710" y="178" width="54" height="22" rx="3"/><rect x="815" y="186" width="54" height="14" rx="3"/></g>
+      <polyline fill="none" stroke="#e5484d" stroke-width="2" points="107,40 212,62 317,96 422,120 527,140 632,156 737,166 842,176"/>
+      <g fill="#8a93a6" font-size="11"><text x="88" y="216">S-8</text><text x="193" y="216">S-7</text><text x="298" y="216">S-6</text><text x="403" y="216">S-5</text><text x="508" y="216">S-4</text><text x="613" y="216">S-3</text><text x="718" y="216">S-2</text><text x="823" y="216">S-1</text></g>
+    </svg></div>
+  <div class="card chart wd"><div class="chart-head">O que divergiu<span style="margin-left:auto">20 objetos · Core PRD</span></div>
+    <div class="row"><span>Tabelas</span><div class="bar"><i style="width:44%;background:var(--primary)"></i></div><b>4</b></div>
+    <div class="row"><span>Colunas</span><div class="bar"><i style="width:100%;background:var(--primary)"></i></div><b>9</b></div>
+    <div class="row"><span>Índices</span><div class="bar"><i style="width:33%;background:#b4541a"></i></div><b>3</b></div>
+    <div class="row"><span>Constraints</span><div class="bar"><i style="width:22%;background:var(--danger)"></i></div><b>2</b></div>
+    <div class="row"><span>Views</span><div class="bar"><i style="width:11%;background:#12805c"></i></div><b>1</b></div>
+    <div class="row"><span>Grants</span><div class="bar"><i style="width:11%;background:var(--purple)"></i></div><b>1</b></div>
+    <div class="faint" style="font-size:12px;margin-top:8px">Comparado com o changelog gate-changelog (estado esperado).</div></div>
+</div>
+<div class="card">
+  <div class="table-head">Execuções de drift <span class="meta">8 de 50 checks · últimos 30 dias</span></div>
+  <table>
+    <thead><tr><th>Comando</th><th>Status</th><th>Drift</th><th>Itens (+ − ~)</th><th>Banco</th><th>Ambiente</th><th style="text-align:right">Data</th></tr></thead>
+    <tbody>
+      <tr class="row-warn"><td><span class="cmd diff">diff</span></td><td><span class="badge b-success">sucesso</span></td><td><span class="badge b-warning">Drift</span></td><td class="mono">+ 9 − 10 ~ 1</td><td class="mono">Core PRD</td><td><span class="env env-prd">PRD</span></td><td style="text-align:right" class="faint">15 set · 16:07</td></tr>
+      <tr><td><span class="cmd diff">diff</span></td><td><span class="badge b-success">sucesso</span></td><td><span class="badge b-success">Limpo</span></td><td class="mono">+ 0 − 0 ~ 0</td><td class="mono">tos-core PRD</td><td><span class="env env-prd">PRD</span></td><td style="text-align:right" class="faint">14 set · 12:09</td></tr>
+      <tr class="row-warn"><td><span class="cmd diff">diff-changelog</span></td><td><span class="badge b-success">sucesso</span></td><td><span class="badge b-warning">Drift</span></td><td class="mono">+ 0 − 2 ~ 0</td><td class="mono">faturamento HML</td><td><span class="env env-hml">HML</span></td><td style="text-align:right" class="faint">14 set · 07:43</td></tr>
+      <tr><td><span class="cmd diff">diff</span></td><td><span class="badge b-success">sucesso</span></td><td><span class="badge b-success">Limpo</span></td><td class="mono">+ 0 − 0 ~ 0</td><td class="mono">faturamento TST</td><td><span class="env env-tst">TST</span></td><td style="text-align:right" class="faint">14 set · 03:13</td></tr>
+      <tr class="row-danger"><td><span class="cmd diff">diff</span></td><td><span class="badge b-danger">falha</span></td><td class="faint">—</td><td class="faint">—</td><td class="mono">controlid HML</td><td><span class="env env-hml">HML</span></td><td style="text-align:right" class="faint">13 set · 22:10</td></tr>
+      <tr><td><span class="cmd diff">diff</span></td><td><span class="badge b-success">sucesso</span></td><td><span class="badge b-success">Limpo</span></td><td class="mono">+ 0 − 0 ~ 0</td><td class="mono">dw-operacional DEV</td><td><span class="env env-dev">DEV</span></td><td style="text-align:right" class="faint">13 set · 19:39</td></tr>
+      <tr class="row-warn"><td><span class="cmd diff">diff</span></td><td><span class="badge b-success">sucesso</span></td><td><span class="badge b-warning">Drift</span></td><td class="mono">+ 0 − 1 ~ 0</td><td class="mono">Core HML</td><td><span class="env env-hml">HML</span></td><td style="text-align:right" class="faint">13 set · 18:35</td></tr>
+      <tr><td><span class="cmd diff">diff-changelog</span></td><td><span class="badge b-success">sucesso</span></td><td><span class="badge b-success">Limpo</span></td><td class="mono">+ 0 − 0 ~ 0</td><td class="mono">Core TST</td><td><span class="env env-tst">TST</span></td><td style="text-align:right" class="faint">12 set · 16:41</td></tr>
+    </tbody>
+  </table>
+</div>
+<script src="layout.js"></script>
+</body></html>

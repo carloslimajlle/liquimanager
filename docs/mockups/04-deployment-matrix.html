@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Deployment Matrix</title><link rel="stylesheet" href="styles.css">
+<style>
+.mx td { padding:7px 12px; }
+.mx th.env, .mx td.env { text-align:center; width:15%; }
+.mx th.env span { display:block; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-3); margin-top:2px; }
+.dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.cs b { font-family:var(--mono); font-size:12.5px; }
+.cs .meta { display:flex; gap:6px; align-items:center; margin-top:3px; font-size:12px; }
+.cs .meta .path { font-family:var(--mono); color:var(--text-3); }
+.seg { display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff; }
+.seg span { padding:6px 12px; font-size:12px; font-weight:600; }
+.seg span.on { background:var(--primary); color:#fff; }
+</style></head>
+<body data-nav="automate" data-crumbs="Automatizar|Deployment Matrix">
+<div class="page-head"><div><h1>Deployment Matrix</h1><p>Todo changeset, todo ambiente, uma grade — para o pipeline selecionado</p></div>
+  <div class="right"><span class="pill">PIPELINE <b>SDLC-GATE</b></span><div class="seg"><span class="on">Matriz</span><span>Timeline</span></div></div></div>
+<div class="kpis">
+  <div class="card kpi hero"><div class="label">Em sincronia nos quatro</div><div class="value">26 <small>de 28 changesets</small></div></div>
+  <div class="card kpi"><div class="label">Ambientes</div><div class="value">4 <small>DEV · TST · HML · PRD</small></div></div>
+  <div class="card kpi"><div class="label">Aguardando promoção</div><div class="value v-primary">1 <small>pendente em homologação</small></div></div>
+  <div class="card kpi"><div class="label">Falhou, com correção entregue</div><div class="value v-danger">1 <small>break-fix já em PRD</small></div></div>
+</div>
+<div class="card">
+<table class="mx">
+  <thead><tr><th>Changeset</th>
+    <th class="env"><i class="dot" style="background:#5b6478"></i>Desenvolvimento<span>Core DEV</span></th>
+    <th class="env"><i class="dot" style="background:var(--primary)"></i>Teste<span>Core TST</span></th>
+    <th class="env"><i class="dot" style="background:var(--warning)"></i>Homologação<span>Core HML</span></th>
+    <th class="env"><i class="dot" style="background:var(--danger)"></i>Produção<span>Core PRD</span></th></tr></thead>
+  <tbody>
+    <tr><td class="cs"><b>SUP-3440-seed-tipo-veiculo</b><div class="meta">t.nunes <span class="path">changes/release-1.9.0/SUP-3440.xml</span><span class="tagv">1.9.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td></tr>
+    <tr><td class="cs"><b>SUP-3471-004-add-col-cnh-motorista</b><div class="meta">t.nunes <span class="path">changes/release-2.0.0/SUP-3471.xml</span><span class="tagv">2.0.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td></tr>
+    <tr class="row-danger"><td class="cs"><b>SUP-3512-002-add-uk-placa-veiculo</b><div class="meta">p.ricardo <span class="path">changes/release-2.1.0/SUP-3512.xml</span><span class="tagv">2.1.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-danger">✕ Falhou</span></td></tr>
+    <tr><td class="cs"><b>SUP-3512-002a-dedup-placa-veiculo</b><div class="meta">p.ricardo <span class="tagv">2.1.0</span><span class="badge b-warning">break-fix</span><span class="faint">contexts: hml, prd</span></div></td><td class="env"><span class="badge b-neutral">Não alvo</span></td><td class="env"><span class="badge b-neutral">Não alvo</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td></tr>
+    <tr><td class="cs"><b>SUP-3498-001-create-table-agendamento</b><div class="meta">l.martins <span class="path">changes/release-2.0.0/SUP-3498.xml</span><span class="tagv">2.0.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td></tr>
+    <tr><td class="cs"><b>SUP-3499-002-create-table-janela</b><div class="meta">l.martins <span class="path">changes/release-2.0.0/SUP-3499.xml</span><span class="tagv">2.0.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td></tr>
+    <tr><td class="cs"><b>SUP-3505-add-idx-agendamento-janela</b><div class="meta">m.costa <span class="path">changes/release-2.1.0/SUP-3505.xml</span><span class="tagv">2.1.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td></tr>
+    <tr><td class="cs"><b>SUP-3507-alter-veiculo-add-pais</b><div class="meta">l.martins <span class="path">changes/release-2.1.0/SUP-3507.xml</span><span class="tagv">2.1.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td></tr>
+    <tr><td class="cs"><b>SUP-3520-drop-legacy-obs-veiculo</b><div class="meta">m.costa <span class="path">changes/release-2.1.0/SUP-3520.xml</span><span class="tagv">2.1.0</span></div></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-success">Sucesso</span></td><td class="env"><span class="badge b-info">Pendente</span></td><td class="env"><span class="faint">—</span></td></tr>
+  </tbody>
+</table></div>
+<script src="layout.js"></script>
+</body></html>

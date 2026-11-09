@@ -1,0 +1,23 @@
+# The rollback runner as a plain container. Any host with Docker will do; nothing here needs an orchestrator.
+#
+#   docker build -f lqm-cli/Dockerfile -t lqm-cli .
+#   LQM_URL=https://lqm.example.internal LQM_TOKEN=... LQM_GIT_URL=... LQM_DB_USERNAME=... LQM_DB_PASSWORD=... \
+#     docker compose -f deploy/examples/runner/docker-compose.yml up -d
+#
+# `restart: unless-stopped` brings it back after a crash or a reboot. `docker stop` sends SIGTERM and the runner finishes the
+# rollback it is doing before it leaves, so give it time (stop_grace_period) instead of the default 10 seconds.
+
+services:
+  lqm-runner:
+    image: lqm-cli:latest
+    command: ["lqm", "runner"]
+    restart: unless-stopped
+    stop_grace_period: 10m
+    environment:
+      LQM_URL: ${LQM_URL:?the LiquiManager address}
+      LQM_TOKEN: ${LQM_TOKEN:?a service token with the runner and ingest scopes}
+      # A read-only credential for the repository that holds the changelog, if it is private.
+      LQM_GIT_URL: ${LQM_GIT_URL:?the repository to clone the changelog from}
+      # The account that may revert changesets on the target database. The runner's own: LiquiManager never sends it.
+      LQM_DB_USERNAME: ${LQM_DB_USERNAME:?}
+      LQM_DB_PASSWORD: ${LQM_DB_PASSWORD:?}

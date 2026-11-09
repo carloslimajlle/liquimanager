@@ -1,0 +1,34 @@
+# Pieces of the end-to-end test that the base compose file does not have. An override, used by deploy/e2e/e2e.py:
+#
+#   python deploy/e2e/e2e.py reset      # clean database, login on, GitLab POC connected
+#
+# The target databases (pocdev, poctst, pochml, pocprd) live in the same PostgreSQL as the product's own schema, to avoid one more
+# container. The API reaches them as postgres:5432; a GitLab job reaches them as host.docker.internal:5432.
+
+services:
+  api:
+    environment:
+      # What a connection with secret provider ENV and secret reference LQM_E2E_DB resolves to (development only, RNF-06).
+      LQM_E2E_DB_USERNAME: poc
+      LQM_E2E_DB_PASSWORD: poc
+
+  # The rollback runner (D-19) as a plain container, on the compose network so it resolves postgres. Started by the script
+  # (`e2e.py runner`) once there is a service token with the `runner` and `ingest` scopes.
+  runner:
+    profiles: ["runner"]
+    image: lqm-cli:local
+    command: ["lqm", "runner", "--poll-seconds", "5"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      LQM_URL: http://api:8080/api/v1
+      LQM_TOKEN: ${LQM_RUNNER_TOKEN:-}
+      # The GitLab POC repository, read with the POC personal access token (local, disposable).
+      LQM_GIT_URL: http://oauth2:glpat-poc-liquibase-token1@host.docker.internal:8929/root/liquibase-poc.git
+      # The account that may revert changesets on the target databases. The runner's own: the API never sends it.
+      LQM_DB_USERNAME: poc
+      LQM_DB_PASSWORD: poc

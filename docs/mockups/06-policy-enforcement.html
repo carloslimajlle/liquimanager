@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Policy Enforcement</title><link rel="stylesheet" href="styles.css">
+<style>
+.gates { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px; }
+.gate { padding:12px 14px; position:relative; }
+.gate .top { display:flex; align-items:center; gap:6px; font-size:11px; letter-spacing:.08em; font-weight:700; text-transform:uppercase; }
+.gate .top .badge { margin-left:auto; text-transform:none; letter-spacing:0; }
+.gate .num { margin-top:6px; } .gate .num b { font-size:18px; }
+.gate.blocked { border-color:#f3b4b4; background:#fff8f8; }
+.sev { font-weight:700; font-size:11.5px; padding:2px 7px; border-radius:4px; }
+.critical { background:var(--danger-bg); color:var(--danger); } .major { background:var(--warning-bg); color:var(--warning); } .minor { background:var(--minor-bg); color:var(--minor); } .info { background:var(--info-bg); color:var(--info); }
+.halted { border:1.5px solid #f3b4b4; }
+.alert { background:#fff5f5; border:1px solid #f6c9c9; border-radius:8px; padding:8px 10px; margin:6px 0; }
+.dstats { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 10px; } .dstats span { font-size:11.5px; }
+</style></head>
+<body data-nav="govern" data-crumbs="Governança|Policy Enforcement" data-actions='<span class="pill">Pipeline: SDLC-GATE</span><span class="pill">Últimos 7 dias</span>'>
+<div class="page-head"><div><h1>Policy Enforcement</h1><p>Os mesmos 40 checks em todo gate, do primeiro commit ao deploy em produção</p></div>
+  <div class="right headstats"><div><span>Checks executados</span><b>1.284</b></div><div><span>Violações</span><b class="v-warning">28</b></div><div><span>Bloqueados</span><b class="v-danger">3</b></div><div><span>Pass rate</span><b class="v-success">94,2%</b></div></div></div>
+<div class="gates">
+  <div class="card gate"><div class="top"><i class="dot" style="width:6px;height:6px;border-radius:50%;background:#5b6478;display:inline-block"></i>Desenvolvimento<span class="badge b-success">passou</span></div><div class="num"><b>40</b> <span class="muted">checks · 12 info</span></div></div>
+  <div class="card gate"><div class="top"><i style="width:6px;height:6px;border-radius:50%;background:var(--primary);display:inline-block"></i>Teste<span class="badge b-success">passou</span></div><div class="num"><b>40</b> <span class="muted">checks · 5 info · 1 major</span></div></div>
+  <div class="card gate"><div class="top"><i style="width:6px;height:6px;border-radius:50%;background:var(--warning);display:inline-block"></i>Homologação<span class="badge b-success">passou</span></div><div class="num"><b>40</b> <span class="muted">checks · 2 info · 1 minor</span></div></div>
+  <div class="card gate blocked"><div class="top"><i style="width:6px;height:6px;border-radius:50%;background:var(--danger);display:inline-block"></i>Produção<span class="badge b-danger">bloqueado</span></div><div class="num"><b>40</b> <span class="muted">checks · 1 critical</span></div></div>
+</div>
+<div class="grid-main-side">
+  <div class="card">
+    <div class="table-head">Achados ao longo do pipeline <span class="meta">10 de 28 · ordenado por severidade</span></div>
+    <table>
+      <thead><tr><th>Severidade</th><th>Check</th><th>Changeset</th><th>Banco</th><th>Ambiente</th><th>Gate</th><th>Hora</th></tr></thead>
+      <tbody>
+        <tr class="row-danger"><td><span class="sev critical">CRITICAL</span></td><td class="mono">UniqueIndexRequiresDedup</td><td class="mono">SUP-3512-002-add-uk-placa-veiculo</td><td>Core PRD</td><td><span class="env env-prd">PRD</span></td><td><span class="badge b-danger">bloqueado</span></td><td class="faint">16:07:31</td></tr>
+        <tr><td><span class="sev major">MAJOR</span></td><td class="mono">GrantStatementReview</td><td class="mono">SUP-3509-grant-role-relatorio</td><td>Core PRD</td><td><span class="env env-prd">PRD</span></td><td><span class="badge b-warning">alertado</span></td><td class="faint">16:07:29</td></tr>
+        <tr><td><span class="sev major">MAJOR</span></td><td class="mono">TableColumnLimit</td><td class="mono">SUP-3498-001-create-table-agendamento</td><td>Core HML</td><td><span class="env env-hml">HML</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:07:12</td></tr>
+        <tr><td><span class="sev minor">MINOR</span></td><td class="mono">ChangesetStandards</td><td class="mono">SUP-3512-002a-dedup-placa-veiculo</td><td>Core HML</td><td><span class="env env-hml">HML</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:07:10</td></tr>
+        <tr><td><span class="sev info">INFO</span></td><td class="mono">RollbackRequired</td><td class="mono">SUP-3505-add-idx-agendamento-janela</td><td>Core TST</td><td><span class="env env-tst">TST</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:06:58</td></tr>
+        <tr><td><span class="sev info">INFO</span></td><td class="mono">ChangesetCommentRequired</td><td class="mono">SUP-3507-alter-veiculo-add-pais</td><td>Core TST</td><td><span class="env env-tst">TST</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:06:51</td></tr>
+        <tr><td><span class="sev info">INFO</span></td><td class="mono">SqlSelectStarWarn</td><td class="mono">SUP-3520-drop-legacy-obs-veiculo</td><td>Core DEV</td><td><span class="env env-dev">DEV</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:06:40</td></tr>
+        <tr><td><span class="sev info">INFO</span></td><td class="mono">ObjectNamingConvention</td><td class="mono">SUP-3499-002-create-table-janela</td><td>Core DEV</td><td><span class="env env-dev">DEV</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:06:33</td></tr>
+        <tr><td><span class="sev info">INFO</span></td><td class="mono">CheckTablesForIndex</td><td class="mono">SUP-3498-001-create-table-agendamento</td><td>Core DEV</td><td><span class="env env-dev">DEV</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:06:20</td></tr>
+        <tr><td><span class="sev info">INFO</span></td><td class="mono">ChangesetStandards</td><td class="mono">SUP-3512-002-add-uk-placa-veiculo</td><td>Core DEV</td><td><span class="env env-dev">DEV</span></td><td><span class="badge b-success">passou</span></td><td class="faint">16:06:12</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <div class="card side-card halted"><h4>Bloqueado antes de produção <span class="badge b-danger">interrompido</span></h4>
+      <div class="alert"><span class="sev critical">CRITICAL</span> <b class="mono">UniqueIndexRequiresDedup</b><div class="muted" style="margin-top:4px;font-size:12px">Severidade 4 · blocker. Deploy em Core PRD interrompido antes de qualquer statement.</div></div>
+      <div class="faint" style="font-size:11px;letter-spacing:.06em;font-weight:700">CHANGESET OFENSOR</div><div class="mono" style="font-size:12px">SUP-3512-002-add-uk-placa-veiculo</div></div>
+    <div class="card side-card"><h4>Edições manuais &amp; emergenciais <span class="badge b-warning">2 sinalizadas</span></h4>
+      <div class="item"><span class="mono">SUP-3512-002a-dedup</span> <span class="badge b-warning">break-fix</span><div class="muted">contexts: hml, prd · fora de banda · aprovado por d.krause</div></div>
+      <div class="item"><span class="mono">fix-indice-remanescente</span> <span class="badge b-warning">break-fix</span><div class="muted">aplicado fora do pipeline · registrado na trilha de auditoria</div></div>
+      <div class="item faint">Toda exceção permanece visível e atribuída.</div></div>
+    <div class="card side-card"><h4>Mudança fora do processo &amp; drift <span class="badge b-warning">detectado</span></h4>
+      <div class="muted" style="font-size:12px">Core PRD · comparado ao changelog</div>
+      <div class="dstats"><span class="badge b-success">+9 adicionados</span><span class="badge b-danger">−10 removidos</span><span class="badge b-warning">1 modificado</span></div>
+      <div style="display:flex;gap:18px;align-items:flex-end"><div><div class="muted" style="font-size:11px">Objetos divergentes</div><b style="font-size:18px">20</b></div><div><div class="muted" style="font-size:11px">Bancos cobertos</div><b style="font-size:18px">13</b></div><a class="link" style="margin-left:auto;font-weight:600">Ver relatório ↗</a></div></div>
+  </div>
+</div>
+<script src="layout.js"></script>
+</body></html>

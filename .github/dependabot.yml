@@ -1,0 +1,35 @@
+# Dependency updates arrive as pull requests, never merged by themselves.
+#
+# Liquibase is NOT updated automatically (D-17): section 4.4 of the architecture leans on internal APIs of liquibase-core
+# that change between versions, and the 5.x line is under the FSL, so the version is raised by a decision, in the parent
+# pom, after checking both.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: org.liquibase:*
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /lqm-web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directory: /lqm-api
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directory: /lqm-cli
+    schedule:
+      interval: monthly

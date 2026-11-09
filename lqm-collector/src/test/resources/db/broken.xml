@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+  <changeSet id="OK-1" author="a">
+    <createTable tableName="t_ok"><column name="id" type="int"/></createTable>
+  </changeSet>
+
+  <changeSet id="BAD-2" author="a">
+    <sql>alter table nao_existe add x int</sql>
+  </changeSet>
+
+  <changeSet id="NEVER-3" author="a">
+    <createTable tableName="t_never"><column name="id" type="int"/></createTable>
+  </changeSet>
+</databaseChangeLog>

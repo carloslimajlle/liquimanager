@@ -1,0 +1,13 @@
+# Liga a API ao Vault de desenvolvimento (profile "vault", deploy/vault/README.md).
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.oidc.yml -f deploy/docker-compose.vault.yml up -d api
+#
+# role_id e secret_id saem de `bash deploy/vault/setup.sh`. O Vault de desenvolvimento roda em memoria: se o container
+# reiniciar, rode o setup de novo e atualize o secret_id (o role_id tambem muda). Nada daqui serve para segredo de verdade.
+
+services:
+  api:
+    environment:
+      LQM_SECRETS_VAULT_URL: http://lqm-vault:8200
+      LQM_SECRETS_VAULT_ROLE_ID: ${LQM_VAULT_ROLE_ID:-38d762b8-9150-16c5-aef1-7ce5ebb8be8d}
+      LQM_SECRETS_VAULT_SECRET_ID: ${LQM_VAULT_SECRET_ID:-d584fccf-b33d-f462-23aa-c399e035ede4}

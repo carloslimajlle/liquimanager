@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Operations Dashboard</title><link rel="stylesheet" href="styles.css"></head>
+<body data-nav="overview" data-crumbs="Visão geral|Operations Dashboard" data-actions='<span class="pill">Todos os workspaces</span><span class="pill">Últimos 7 dias</span>'>
+<div class="page-head">
+  <div><h1>Operations Dashboard</h1><p>Atividade de mudanças de banco por time, banco e ambiente</p></div>
+  <div class="right headstats"><div><span>Times</span><b>6</b></div><div><span>Bancos</span><b>29</b></div><div><span>Pipelines</span><b>3</b></div><div><span>Operações</span><b>1.284</b></div></div>
+</div>
+
+<div class="section-title">Mudanças de banco <span class="muted">Indicadores DORA de entrega</span><span class="link">Ver detalhes ↗</span></div>
+<div class="kpis">
+  <div class="card kpi hero"><div class="label">Frequência de deploy</div><div class="value">22,43 <small>/dia</small><span class="trend" style="color:#fff">↗ +73%</span></div><div class="sub">168 deploys nesta semana</div></div>
+  <div class="card kpi"><div class="label">Taxa de falha de mudança</div><div class="value">6,5 <small>%</small><span class="trend up">↘ −4,3 pts</span></div><div class="sub">11 de 168 falharam</div></div>
+  <div class="card kpi"><div class="label">Taxa de rollback</div><div class="value">4,5 <small>%</small><span class="trend up">↘ −6,5 pts</span></div><div class="sub">7 de 157 com rollback</div></div>
+  <div class="card kpi"><div class="label">Cycle time</div><div class="value">10,8 <small>h</small><span class="trend up">↘ −89%</span></div><div class="sub">não-PRD → primeiro deploy em PRD</div></div>
+</div>
+
+<div class="section-title">Políticas <span class="muted">Resultado dos checks em todos os pipelines</span><span class="link">Ver detalhes ↗</span></div>
+<div class="kpis">
+  <div class="card kpi"><div class="label">Pass rate</div><div class="value v-success">94,2 <small>%</small><span class="trend up">↗ +1,8 pts</span></div><div class="sub">1.210 de 1.284 checks</div></div>
+  <div class="card kpi"><div class="label">Bloqueados antes de PRD</div><div class="value v-danger">3<span class="trend up">↘ −2</span></div><div class="sub">deploys interrompidos por política</div></div>
+  <div class="card kpi"><div class="label">Cobertura de bancos</div><div class="value">92,3 <small>%</small><span class="trend up">↗ 12 de 13</span></div><div class="sub">bancos sob política</div></div>
+  <div class="card kpi"><div class="label">Cobertura de changelogs</div><div class="value">100 <small>%</small><span class="trend up">↗ 3 de 3</span></div><div class="sub">changelogs sob política</div></div>
+</div>
+
+<div class="section-title">Drift <span class="muted">Mudanças fora do processo</span><span class="link">Ver detalhes ↗</span></div>
+<div class="kpis">
+  <div class="card kpi"><div class="label">Drift rate</div><div class="value v-warning">12 <small>%</small><span class="trend up">↘ −54 pts</span></div><div class="sub">6 de 50 operações</div></div>
+  <div class="card kpi"><div class="label">Drift detectado</div><div class="value v-warning">6<span class="trend up">↘ −27</span></div><div class="sub">operações com drift</div></div>
+  <div class="card kpi"><div class="label">Itens de drift</div><div class="value">20<span class="trend up">↘ −319</span></div><div class="sub">9 adicionados · 10 removidos · 1 modificado</div></div>
+  <div class="card kpi"><div class="label">Cobertura de monitoramento</div><div class="value">86,2 <small>%</small><span class="trend up">↗ 25 de 29</span></div><div class="sub">bancos monitorados</div></div>
+</div>
+
+<div class="card">
+  <div class="table-head">Atividade de mudanças por time e banco <span class="meta">9 de 1.284 operações · ao vivo</span></div>
+  <table>
+    <thead><tr><th>Hora</th><th>Time</th><th>Changeset</th><th>Banco</th><th>Ambiente</th><th>Operação</th><th>Escopo</th><th>Resultado</th></tr></thead>
+    <tbody>
+      <tr><td class="faint">16:08</td><td><b>Gate</b></td><td class="mono">SUP-3512-002-add-uk-placa-veiculo</td><td class="mono">Core PRD</td><td><span class="env env-prd">PRD</span></td><td class="mono">rollback-one-changeset</td><td>1 changeset</td><td><span class="badge b-success">sucesso</span></td></tr>
+      <tr class="row-danger"><td class="faint">16:07</td><td><b>Gate</b></td><td class="mono">SUP-3512-002-add-uk-placa-veiculo</td><td class="mono">Core PRD</td><td><span class="env env-prd">PRD</span></td><td class="mono">update</td><td>6 changesets</td><td><span class="badge b-danger">bloqueado</span></td></tr>
+      <tr><td class="faint">16:07</td><td><b>Gate</b></td><td class="mono">SUP-3498-001-create-table-agendamento</td><td class="mono">Core HML</td><td><span class="env env-hml">HML</span></td><td class="mono">update</td><td>6 changesets</td><td><span class="badge b-success">sucesso</span></td></tr>
+      <tr><td class="faint">16:06</td><td><b>TOS</b></td><td class="mono">release-2.0.0 package</td><td class="mono">tos-core</td><td><span class="env env-hml">HML</span></td><td class="mono">checks run</td><td>40 changesets</td><td><span class="badge b-success">sucesso</span></td></tr>
+      <tr><td class="faint">16:04</td><td><b>Faturamento</b></td><td class="mono">SUP-3501-add-idx-fatura-data</td><td class="mono">faturamento</td><td><span class="env env-tst">TST</span></td><td class="mono">update</td><td>4 changesets</td><td><span class="badge b-success">sucesso</span></td></tr>
+      <tr><td class="faint">16:01</td><td><b>Dados</b></td><td class="mono">add-partition-movimentacao</td><td class="mono">dw-operacional</td><td><span class="env env-dev">DEV</span></td><td class="mono">update</td><td>2 changesets</td><td><span class="badge b-success">sucesso</span></td></tr>
+      <tr class="row-warn"><td class="faint">15:58</td><td><b>Gate</b></td><td class="mono">schema snapshot</td><td class="mono">Core PRD</td><td><span class="env env-prd">PRD</span></td><td class="mono">diff</td><td>— changesets</td><td><span class="badge b-warning">drift</span></td></tr>
+      <tr><td class="faint">15:52</td><td><b>Segurança</b></td><td class="mono">release-1.4.0 package</td><td class="mono">controlid</td><td><span class="env env-tst">TST</span></td><td class="mono">update</td><td>12 changesets</td><td><span class="badge b-success">sucesso</span></td></tr>
+      <tr><td class="faint">15:47</td><td><b>Auditoria</b></td><td class="mono">SUP-3476-001-criar-table-auditoria</td><td class="mono">Core HML</td><td><span class="env env-hml">HML</span></td><td class="mono">update</td><td>1 changeset</td><td><span class="badge b-success">sucesso</span></td></tr>
+    </tbody>
+  </table>
+</div>
+<script src="layout.js"></script>
+</body></html>

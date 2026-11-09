@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.github.carloslimajlle.liquimanager</groupId>
+    <artifactId>liquimanager</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>lqm-spring-boot-starter</artifactId>
+  <name>LiquiManager :: Spring Boot Starter</name>
+  <description>
+    Auto-configuration for services that run Liquibase at pod startup. It evaluates the
+    checks before the update and reports the operation.
+
+    IMPORTANT: this module lands on the classpath of third-party services, so
+    liquibase-core and spring-* are `provided` — the service's own versions win.
+
+    It is the ONLY module not on Spring Boot 4: it imports the 3.4.x BOM below, because
+    the services that adopt it run Boot 3.4 / Spring Framework 6, and an artifact compiled
+    against Framework 7 would not load in there (D-18). The local dependencyManagement
+    beats the one inherited from the parent pom.
+
+    Compatibility target: Liquibase 4.20+ and 5.x, Java 17+ (RNF-15).
+
+    Collectors are fail-open by default (ADR-004): LiquiManager being unavailable must
+    never stop a deployment, unless lqm.enforce.failClosed=true for that environment.
+  </description>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Overrides the Boot 4 BOM inherited from the parent, in this module only. -->
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot-starter-compat.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!-- The parent pins Liquibase 5.x explicitly, which an imported BOM cannot override. The starter
+           must be proven against the 4.x a Boot 3.4 service actually runs. -->
+      <dependency>
+        <groupId>org.liquibase</groupId>
+        <artifactId>liquibase-core</artifactId>
+        <version>${liquibase-starter-compat.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.github.carloslimajlle.liquimanager</groupId>
+      <artifactId>lqm-policy-engine</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.carloslimajlle.liquimanager</groupId>
+      <artifactId>lqm-core-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.carloslimajlle.liquimanager</groupId>
+      <artifactId>lqm-collector</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-autoconfigure</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.liquibase</groupId>
+      <artifactId>liquibase-core</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-configuration-processor</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

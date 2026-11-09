@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.github.carloslimajlle.liquimanager</groupId>
+  <artifactId>liquimanager</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>LiquiManager</name>
+  <description>Control plane for database changes, built on Liquibase OSS</description>
+  <url>https://github.com/carloslimajlle/liquimanager</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <modules>
+    <module>lqm-policy-engine</module>
+    <module>lqm-core-client</module>
+    <module>lqm-collector</module>
+    <module>lqm-api</module>
+    <module>lqm-cli</module>
+    <module>lqm-spring-boot-starter</module>
+    <module>lqm-worker</module>
+  </modules>
+
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.release>21</maven.compiler.release>
+    <!--
+      Keep parameter names in the bytecode. spring-boot-starter-parent sets this, but
+      this pom imports the Boot BOM instead of inheriting from it (so the policy engine
+      and core client stay free of Spring) — which silently drops the flag. Without it,
+      `@PathVariable UUID id` cannot resolve its name and every such endpoint answers 422.
+    -->
+    <maven.compiler.parameters>true</maven.compiler.parameters>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <!--
+      D-17: the engine is the Liquibase 5.x line, licensed FSL-1.1-ALv2.
+      FSL covers internal use but forbids offering the product as a competing service.
+      Do NOT let this version move on an automatic update: configure Renovate/Dependabot
+      to open a merge request and never auto-merge org.liquibase:liquibase-core.
+      Before any minor bump, re-validate the internal APIs used by docs/04 § 4.4
+      (ChangeSet.rollback, ChangeLogHistoryService.removeFromHistory, SnapshotGeneratorFactory).
+    -->
+    <liquibase.version>5.0.4</liquibase.version>
+    <!-- Liquibase the STARTER is tested against: what a service on Boot 3.4 brings (RNF-15). -->
+    <liquibase-starter-compat.version>4.29.2</liquibase-starter-compat.version>
+
+    <!--
+      Spring Boot 4.x (Spring Framework 7) for the API and the worker. 4.1.2 already
+      manages liquibase-core 5.0.4, the very version D-17 pins — BOM and product aligned.
+    -->
+    <spring-boot.version>4.1.2</spring-boot.version>
+
+    <!--
+      EXCEPTION: lqm-spring-boot-starter is compiled against 3.4.x, because it lands on
+      the classpath of the services that adopt it, which run Boot 3.4 / Spring Framework 6.
+      A starter compiled against Framework 7 would not load in there. See D-18.
+    -->
+    <spring-boot-starter-compat.version>3.4.13</spring-boot-starter-compat.version>
+
+    <!-- springdoc 3.x is the line built against Spring Boot 4. -->
+    <springdoc.version>3.2.0</springdoc.version>
+    <picocli.version>4.7.7</picocli.version>
+    <shedlock.version>7.10.1</shedlock.version>
+    <postgresql.version>42.7.14</postgresql.version>
+    <!-- Argon2id for service-token hashing (RNF-08); spring-security-crypto needs it. -->
+    <bouncycastle.version>1.86</bouncycastle.version>
+    <!-- The audit trail as a PDF (Apache 2.0, like this project). -->
+    <pdfbox.version>3.0.8</pdfbox.version>
+    <mssql-jdbc.version>13.6.1.jre11</mssql-jdbc.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- BOM imported rather than inheriting from spring-boot-starter-parent, so
+           lqm-policy-engine and lqm-core-client stay free of Spring. -->
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>org.liquibase</groupId>
+        <artifactId>liquibase-core</artifactId>
+        <version>${liquibase.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        <version>${springdoc.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>info.picocli</groupId>
+        <artifactId>picocli</artifactId>
+        <version>${picocli.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.javacrumbs.shedlock</groupId>
+        <artifactId>shedlock-spring</artifactId>
+        <version>${shedlock.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.javacrumbs.shedlock</groupId>
+        <artifactId>shedlock-provider-jdbc-template</artifactId>
+        <version>${shedlock.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${postgresql.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>${bouncycastle.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.microsoft.sqlserver</groupId>
+        <artifactId>mssql-jdbc</artifactId>
+        <version>${mssql-jdbc.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.pdfbox</groupId>
+        <artifactId>pdfbox</artifactId>
+        <version>${pdfbox.version}</version>
+      </dependency>
+
+      <!-- internal modules -->
+      <dependency>
+        <groupId>io.github.carloslimajlle.liquimanager</groupId>
+        <artifactId>lqm-policy-engine</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.github.carloslimajlle.liquimanager</groupId>
+        <artifactId>lqm-core-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.github.carloslimajlle.liquimanager</groupId>
+        <artifactId>lqm-collector</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

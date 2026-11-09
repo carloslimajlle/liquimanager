@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LiquiManager's own schema, version-controlled with Liquibase
+  (docs/01 § 8: dogfooding).
+
+  Why formatted SQL instead of XML: the schema leans on PostgreSQL-specific
+  features (jsonb, text[], bigserial, range partitioning, check constraints) that
+  Liquibase XML abstracts poorly or does not cover at all. Keeping it as SQL also
+  lets the changelog be read side by side with the reference DDL in
+  docs/05-modelo-de-dados.md.
+
+  Every changeset carries an explicit rollback: LiquiManager applies to itself the
+  RollbackRequired check it demands from everyone else.
+-->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+  <!-- Structure. Order matters: foreign keys follow the sections of docs/05. -->
+  <include relativeToChangelogFile="true" file="baseline/001-catalog.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/002-changesets.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/003-operations.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/004-policies.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/005-drift-metrics-audit.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/006-security.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/007-connection-verified.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/008-jobs.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/009-drift-scanner.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/010-rollback-requests.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/011-notifications.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/012-promotions.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/013-promotion-approval.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/014-workspace-settings.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/015-stage-auto-request.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/016-changeset-applied-version.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/017-break-glass.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/018-notification-options.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/019-drift-grants.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/020-rollback-plan.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/021-changeset-removed.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/022-changeset-origin.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/023-changeset-review.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/024-gitlab-merge-request.sql"/>
+  <include relativeToChangelogFile="true" file="baseline/025-access-request.sql"/>
+
+  <!-- Seed data. Behind the `seed` context so the structure can be applied
+       without it (for instance in a test database that builds its own data). -->
+  <include relativeToChangelogFile="true" file="seed/001-environments.sql" context="seed"/>
+  <include relativeToChangelogFile="true" file="seed/002-role-templates.sql" context="seed"/>
+  <include relativeToChangelogFile="true" file="seed/003-checks.sql" context="seed"/>
+  <include relativeToChangelogFile="true" file="seed/004-phase3-checks.sql" context="seed"/>
+  <include relativeToChangelogFile="true" file="seed/005-workspace-name.sql" context="seed"/>
+  <include relativeToChangelogFile="true" file="seed/006-phase2-checks.sql" context="seed"/>
+
+</databaseChangeLog>

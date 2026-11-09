@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Access and Permissions</title><link rel="stylesheet" href="styles.css">
+<style>
+.ini { display:inline-grid; place-items:center; width:24px; height:20px; border-radius:4px; background:var(--primary-50); color:var(--primary); font-size:10.5px; font-weight:700; margin-right:6px; }
+.modal { position:absolute; left:300px; top:150px; width:300px; background:#fff; border:1px solid var(--border); border-radius:12px; box-shadow:0 20px 48px rgba(16,24,40,.22); padding:14px; }
+.modal h3 { font-size:15px; margin-bottom:10px; }
+.opt { display:flex; gap:10px; align-items:center; border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; }
+.opt.on { border-color:var(--primary); box-shadow:0 0 0 3px #e3e8ff; }
+.opt .r { width:14px; height:14px; border-radius:50%; border:1.5px solid var(--text-3); }
+.opt.on .r { border:4px solid var(--primary); }
+.opt small { display:block; color:var(--text-3); }
+.lbl { font-size:11px; font-weight:700; letter-spacing:.06em; color:var(--text-2); margin:10px 0 4px; }
+</style></head>
+<body data-nav="admin" data-crumbs="Administrar|Acessos e Permissões" data-actions='<span class="pill">Guardrails de Produção — Gate</span>'>
+<div class="page-head"><div><h1>Acessos e Permissões</h1><p>Atribuição: Guardrails de Produção — Gate · Plataforma Portuária · <span class="mono">3f9a-c2e1-7b04-d8a6</span></p></div>
+  <div class="right headstats"><div><span>Grupos</span><b>8</b></div><div><span>Membros</span><b>37</b></div><div><span>Exceções abertas</span><b class="v-warning">2</b></div><div><span>Eventos de auditoria</span><b>1.412</b></div></div></div>
+<div class="grid-main-side" style="position:relative">
+  <div class="card">
+    <div class="table-head">Acesso por papel e segregação de funções <span class="meta">revisores não fazem deploy · quem faz deploy não aprova</span></div>
+    <table>
+      <thead><tr><th>Principal</th><th>Tipo</th><th>Template de papel</th><th>Escopo</th><th>Permissão</th><th>Aprovador</th><th>Atualizado</th></tr></thead>
+      <tbody>
+        <tr><td><span class="ini">PA</span><b>platform-admins</b></td><td>Grupo · 5</td><td><span class="chip">Admin do cliente</span></td><td>workspace</td><td class="mono">assignment:admin</td><td class="faint">—</td><td class="faint">14 set</td></tr>
+        <tr><td><span class="ini">DB</span><b>dbas</b></td><td>Grupo · 4</td><td><span class="chip">DBA</span></td><td>Core PRD</td><td class="mono">deploy:prd</td><td>d.krause</td><td class="faint">15 set</td></tr>
+        <tr><td><span class="ini">GT</span><b>gate-devs</b></td><td>Grupo · 9</td><td><span class="chip">Desenvolvedor</span></td><td>projeto gate</td><td class="mono">deploy:dev,tst</td><td class="faint">—</td><td class="faint">12 set</td></tr>
+        <tr><td><span class="ini">RL</span><b>release-managers</b></td><td>Grupo · 3</td><td><span class="chip">Release Manager</span></td><td>pipeline SDLC</td><td class="mono">promote:hml,prd</td><td>s.gupta</td><td class="faint">11 set</td></tr>
+        <tr><td><span class="ini">SC</span><b>security-review</b></td><td>Grupo · 4</td><td><span class="chip">Revisor de segurança</span></td><td>workspace</td><td class="mono">policy:approve</td><td class="faint">—</td><td class="faint">10 set</td></tr>
+        <tr><td><span class="ini">DA</span><b>data-analysts</b></td><td>Grupo · 4</td><td><span class="chip">Leitura</span></td><td>dw-operacional</td><td class="mono">assignment:view</td><td class="faint">—</td><td class="faint">09 set</td></tr>
+        <tr><td><span class="ini">IR</span><b>incident-response</b></td><td>Grupo · 3</td><td><span class="chip">Break-glass</span></td><td>todas as PRD</td><td class="mono">rollback:prd</td><td>d.krause</td><td class="faint">08 set</td></tr>
+        <tr><td><span class="ini">DK</span><b>d.krause</b></td><td>Usuário</td><td><span class="chip">DBA</span></td><td>workspace</td><td class="mono">exception:approve</td><td class="faint">—</td><td class="faint">08 set</td></tr>
+        <tr class="row-danger"><td><span class="ini">TO</span><b>t.obrien</b></td><td>Usuário</td><td class="faint">—</td><td>Core PRD</td><td class="mono">nega todas as leituras</td><td>s.gupta</td><td class="faint">07 set</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="modal"><h3>Conceder acesso</h3>
+    <div class="lbl">PRINCIPAL</div>
+    <div class="opt"><i class="r"></i><div><b>DA</b> data-analysts<small>Grupo · 5 membros</small></div></div>
+    <div class="opt on"><i class="r"></i><div><b>DG</b> DBA Guild<small>Grupo · 3 membros</small></div></div>
+    <div class="opt"><i class="r"></i><div><b>CO</b> Compliance<small>Grupo · 6 membros</small></div></div>
+    <div class="opt"><i class="r"></i><div><b>SR</b> Security Review<small>Grupo · 4 membros</small></div></div>
+    <div class="lbl">PERMISSÃO</div><div class="input" style="color:var(--text);display:flex;justify-content:space-between">Visualizar — assignment:view <span>▾</span></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><span class="btn">Cancelar</span><span class="btn primary">Conceder acesso</span></div>
+  </div>
+  <div>
+    <div class="card side-card"><h4>Exceções governadas <span class="badge b-warning">2 abertas</span></h4>
+      <div class="item"><b class="mono">t.obrien</b> <span class="badge b-danger">nega todas as leituras</span><div class="muted">revisão de segurança pendente · por s.gupta · expira em 8 dias</div></div>
+      <div class="item"><b class="mono">release-managers</b> <span class="badge b-success">assignment:edit</span><div class="muted">concedido por d.krause · expira 30/09/2026</div></div>
+      <div class="item faint">Toda exceção tem prazo, é atribuída e auditada.</div></div>
+    <div class="card side-card"><h4>Gestão de segredos <span class="badge b-success">0 em changelogs</span></h4>
+      <div class="item" style="display:flex"><b class="mono">Core PRD</b><span class="muted" style="margin-left:auto">Vault (KV)</span><span class="faint" style="margin-left:10px">2d</span></div>
+      <div class="item" style="display:flex"><b class="mono">tos-core</b><span class="muted" style="margin-left:auto">Vault (KV)</span><span class="faint" style="margin-left:10px">4d</span></div>
+      <div class="item" style="display:flex"><b class="mono">controlid</b><span class="muted" style="margin-left:auto">Consul KV</span><span class="faint" style="margin-left:10px">1d</span></div>
+      <div class="item" style="display:flex"><b class="mono">dw-operacional</b><span class="muted" style="margin-left:auto">Azure Key Vault</span><span class="v-warning" style="margin-left:10px;font-weight:600">14d</span></div></div>
+    <div class="card side-card"><h4>Evidências para auditoria <span class="faint" style="margin-left:auto;font-weight:400;font-size:11px">últimas 24 h</span></h4>
+      <div class="item"><b>d.krause</b> concedeu assignment:edit a release-managers · 16:07</div>
+      <div class="item"><b>s.gupta</b> abriu revisão de segurança em t.obrien · 15:52</div>
+      <div class="item"><b>p.ricardo</b> rollback de SUP-3512-002 · 16:08</div></div>
+  </div>
+</div>
+<script src="layout.js"></script>
+</body></html>

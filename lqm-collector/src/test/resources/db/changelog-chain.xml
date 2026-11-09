@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+  <!-- three changesets that stand on each other: the column needs the table, the row needs the column -->
+  <changeSet id="A-create-pedido" author="ana">
+    <createTable tableName="pedido">
+      <column name="id" type="bigint"><constraints primaryKey="true"/></column>
+    </createTable>
+    <rollback><dropTable tableName="pedido"/></rollback>
+  </changeSet>
+
+  <changeSet id="B-add-total" author="ana">
+    <addColumn tableName="pedido"><column name="total" type="int"/></addColumn>
+    <rollback><dropColumn tableName="pedido" columnName="total"/></rollback>
+  </changeSet>
+
+  <changeSet id="C-seed" author="bruno">
+    <sql>insert into pedido (id, total) values (1, 10)</sql>
+    <rollback><sql>delete from pedido where id = 1</sql></rollback>
+  </changeSet>
+</databaseChangeLog>

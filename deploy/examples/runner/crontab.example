@@ -1,0 +1,6 @@
+# The rollback runner under cron, for a site that already schedules everything with it (the Windows Task Scheduler takes the
+# same command line). `--once` takes at most one approved rollback and exits, so every minute is a fine rhythm: an idle run
+# costs one cheap request. Two runs that overlap are safe, the API hands each request to only one of them.
+#
+# Credentials come from a file only the user can read, not from the crontab.
+* * * * * . /etc/lqm-runner.env && /usr/bin/java -jar /opt/lqm/lqm.jar runner --once >> /var/log/lqm-runner.log 2>&1

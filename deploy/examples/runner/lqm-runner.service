@@ -1,0 +1,23 @@
+# The rollback runner as a systemd service, on a host with Java 21 and git and no container at all.
+#
+#   sudo cp lqm-runner.service /etc/systemd/system/
+#   sudo cp lqm-runner.env.example /etc/lqm-runner.env && sudo chmod 600 /etc/lqm-runner.env   # then fill it in
+#   sudo systemctl enable --now lqm-runner
+#
+# `systemctl stop` sends SIGTERM and waits (TimeoutStopSec) for the rollback in progress to finish before it gives up.
+
+[Unit]
+Description=LiquiManager rollback runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lqm
+EnvironmentFile=/etc/lqm-runner.env
+ExecStart=/usr/bin/java -jar /opt/lqm/lqm.jar runner
+Restart=always
+RestartSec=10
+TimeoutStopSec=630
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+# Line endings: the repository stores LF; a Windows working tree may use CRLF.
+* text=auto eol=lf
+
+# Scripts need LF even on Windows (they run under Git Bash / a Linux runner).
+*.sh text eol=lf
+
+# Binaries: never convert. The PNGs/JPEGs under docs/prints/ are version-controlled on purpose.
+*.png binary
+*.jpeg binary
+*.jpg binary
+*.pdf binary
+*.jar binary
+*.woff binary
+*.woff2 binary

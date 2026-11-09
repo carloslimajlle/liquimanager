@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Developer Mode</title><link rel="stylesheet" href="styles.css">
+<style>
+.editor { overflow:hidden; position:relative; }
+.tabs { display:flex; align-items:center; border-bottom:1px solid var(--border); background:var(--surface-alt); }
+.tabs span { padding:9px 16px; font-family:var(--mono); font-size:12px; color:var(--text-2); border-right:1px solid var(--border); }
+.tabs span.on { background:#fff; color:var(--text); font-weight:600; }
+.tabs .meta { margin-left:auto; border:0; font-family:var(--font); }
+.src { display:grid; grid-template-columns:44px 1fr; font-family:var(--mono); font-size:12.5px; line-height:1.7; }
+.ln { text-align:right; padding:8px 10px; color:var(--text-3); background:var(--surface-alt); }
+.cd { padding:8px 14px; white-space:pre; }
+.k { color:#3552e0; font-weight:600; } .s { color:#12805c; } .c { color:#8a93a6; } .t { color:#7046d6; }
+.ctx { position:absolute; left:640px; top:150px; display:flex; gap:4px; align-items:flex-start; }
+.menu { background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 12px 32px rgba(16,24,40,.16); padding:4px; min-width:200px; font-size:12.5px; }
+.menu div { padding:7px 10px; border-radius:5px; display:flex; }
+.menu div::after { content:"›"; margin-left:auto; color:var(--text-3); }
+.menu div.plain::after { content:""; }
+.menu div.sel { background:var(--primary); color:#fff; }
+.menu div.sel::after { color:#fff; }
+.menu hr { border:0; border-top:1px solid var(--border); margin:4px 0; }
+.term { border-top:1px solid var(--border); }
+.term .tt { display:flex; gap:18px; padding:8px 14px; font-size:11px; letter-spacing:.06em; color:var(--text-3); font-weight:600; }
+.term .tt b { color:var(--text); border-bottom:2px solid var(--primary); padding-bottom:2px; }
+.term pre { font-family:var(--mono); font-size:12px; padding:4px 14px 12px; line-height:1.6; }
+.pass { color:var(--success); font-weight:700; }
+</style></head>
+<body data-nav="developer" data-crumbs="Gerenciar|Changelogs|gate-changelog">
+<div class="page-head"><div><h1>Developer Mode</h1><p>Changesets e seus rollbacks vivem no repositório. Update, checks e flow direto do editor.</p></div></div>
+<div class="kpis">
+  <div class="card kpi hero"><div class="label">Changesets no repositório</div><div class="value">28 <small>release 2.1.0</small></div></div>
+  <div class="card kpi"><div class="label">Com rollback</div><div class="value v-success">28 <small>todo changeset é reversível</small></div></div>
+  <div class="card kpi"><div class="label">Comandos a partir do editor</div><div class="value">4 <small>update · rollback · checks · flow</small></div></div>
+  <div class="card kpi"><div class="label">Último flow</div><div class="value v-primary">3,5<small>s · 3 estágios, todos passaram</small></div></div>
+</div>
+<div class="card editor">
+  <div class="tabs"><span>db.changelog-master.xml</span><span class="on">SUP-3498-001-create-table-agendamento.xml</span><span>lqm.flow.yaml</span><span class="meta muted">⑂ <b>main</b> · 28 changesets · <b class="v-success">28 com rollback</b></span></div>
+  <div class="src">
+<div class="ln">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17</div>
+<div class="cd"><span class="c">&lt;?xml version="1.0" encoding="UTF-8"?&gt;</span>
+<span class="t">&lt;databaseChangeLog</span> xmlns=<span class="s">"http://www.liquibase.org/xml/ns/dbchangelog"</span><span class="t">&gt;</span>
+  <span class="t">&lt;changeSet</span> id=<span class="s">"SUP-3498-001"</span> author=<span class="s">"l.martins"</span> labels=<span class="s">"release-2.0.0"</span> context=<span class="s">"dev,tst,hml,prd"</span><span class="t">&gt;</span>
+    <span class="t">&lt;createTable</span> tableName=<span class="s">"agendamento"</span> schemaName=<span class="s">"dbo"</span><span class="t">&gt;</span>
+      <span class="t">&lt;column</span> name=<span class="s">"id"</span> type=<span class="s">"BIGINT"</span> autoIncrement=<span class="s">"true"</span><span class="t">&gt;</span>
+        <span class="t">&lt;constraints</span> primaryKey=<span class="s">"true"</span> primaryKeyName=<span class="s">"pk_agendamento"</span><span class="t">/&gt;</span>
+      <span class="t">&lt;/column&gt;</span>
+      <span class="t">&lt;column</span> name=<span class="s">"veiculo_id"</span> type=<span class="s">"BIGINT"</span><span class="t">&gt;</span>
+        <span class="t">&lt;constraints</span> nullable=<span class="s">"false"</span> foreignKeyName=<span class="s">"fk_agendamento_veiculo"</span> references=<span class="s">"dbo.veiculo(id)"</span><span class="t">/&gt;</span>
+      <span class="t">&lt;/column&gt;</span>
+      <span class="t">&lt;column</span> name=<span class="s">"janela_inicio"</span> type=<span class="s">"DATETIME2"</span><span class="t">/&gt;</span>
+      <span class="t">&lt;column</span> name=<span class="s">"criado_em"</span> type=<span class="s">"DATETIME2"</span> defaultValueComputed=<span class="s">"SYSUTCDATETIME()"</span><span class="t">/&gt;</span>
+    <span class="t">&lt;/createTable&gt;</span>
+    <span class="t">&lt;rollback&gt;</span>
+      <span class="t">&lt;dropTable</span> tableName=<span class="s">"agendamento"</span> schemaName=<span class="s">"dbo"</span><span class="t">/&gt;</span>
+    <span class="t">&lt;/rollback&gt;</span>
+  <span class="t">&lt;/changeSet&gt;</span></div>
+  </div>
+  <div class="ctx">
+    <div class="menu"><div class="plain">Ir para definição</div><div class="plain">Localizar referências</div><hr><div class="sel">LiquiManager</div><div class="plain">Paleta de comandos…</div></div>
+    <div class="menu" style="margin-top:72px"><div>Criar recursos</div><div><b>Update</b></div><div><b>Rollbacks</b></div><div><b>Policy Checks</b></div><div><b>Flow</b></div><div>Comandos adicionais</div><div>Observabilidade</div><hr><div>Configurações &amp; feedback</div></div>
+  </div>
+  <div class="term"><div class="tt"><span>PROBLEMAS</span><span>SAÍDA</span><b>TERMINAL</b><span style="margin-left:auto">bash</span></div>
+<pre>gate git:(main) <b>lqm flow --flow-file=lqm.flow.yaml --env=HML</b>      <span class="faint">LiquiManager CLI 1.0.0 · Liquibase 5.0.0 · projeto gate</span>
+<span class="pass">[PASS]</span> checks       12 changesets validados · 0 violações               0.9s
+<span class="pass">[PASS]</span> update       6 changesets aplicados em Core HML              1.8s
+<span class="pass">[PASS]</span> tag          release-2.0.0                                       0.2s</pre></div>
+</div>
+<script src="layout.js"></script>
+</body></html>

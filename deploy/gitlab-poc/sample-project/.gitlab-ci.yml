@@ -1,0 +1,119 @@
+# Evita pipeline duplicado: quando a branch tem MR aberto, só o pipeline de MR roda.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+stages:
+  - validate
+  - preview
+  - apply
+
+# Banco efemero: cada job sobe seu proprio Postgres como service.
+.liquibase:
+  image: liquibase/liquibase:latest
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: pocdb
+    POSTGRES_USER: poc
+    POSTGRES_PASSWORD: poc
+    LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/pocdb
+    LIQUIBASE_COMMAND_USERNAME: poc
+    LIQUIBASE_COMMAND_PASSWORD: poc
+    LIQUIBASE_COMMAND_CHANGELOG_FILE: db/changelog/db.changelog-master.yaml
+    LIQUIBASE_SEARCH_PATH: $CI_PROJECT_DIR
+    # O banner nao e flag de linha de comando: so sai por variavel de ambiente.
+    LIQUIBASE_SHOW_BANNER: "false"
+  before_script:
+    - cd "$CI_PROJECT_DIR"
+    # A imagem liquibase 5.x so embute o H2: o driver JDBC do Postgres
+    # precisa ser instalado pelo lpm (Liquibase Package Manager).
+    - lpm update >/dev/null 2>&1 || true
+    - lpm add postgresql --global
+    - |
+      echo "Aguardando o Postgres..."
+      ready=0
+      for i in $(seq 1 30); do
+        if liquibase status >/dev/null 2>&1; then ready=1; echo "Postgres pronto em ${i}x2s"; break; fi
+        sleep 2
+      done
+      if [ "$ready" != "1" ]; then
+        echo "ERRO: o service postgres nao respondeu. Diagnostico:"
+        liquibase status || true
+        exit 1
+      fi
+
+# 1. Sintaxe e integridade do changelog (roda em qualquer commit).
+validate:
+  extends: .liquibase
+  stage: validate
+  script:
+    - liquibase validate
+    - liquibase status --verbose
+
+# 1b. Politicas do LiquiManager: avalia o changelog contra o pacote efetivo e comenta o resumo no MR.
+# A imagem e a `lqm-cli` (deploy/gitlab-poc/README: `docker build -f lqm-cli/Dockerfile -t lqm-cli:local .`); num GitLab de
+# verdade ela vem do registry do grupo. LQM_URL, LQM_TOKEN e LQM_GITLAB_TOKEN sao variaveis do projeto (connect-lqm.py ci).
+# Falha do LiquiManager NAO derruba o job (fail-open, ADR-004); so um check bloqueante derruba (codigo de saida 3).
+lqm-checks:
+  stage: validate
+  image: lqm-cli:local
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: pocdb
+    POSTGRES_USER: poc
+    POSTGRES_PASSWORD: poc
+    LQM_DB_URL: jdbc:postgresql://postgres:5432/pocdb
+    LQM_DB_USERNAME: poc
+    LQM_DB_PASSWORD: poc
+    LQM_PROJECT: liquibase-poc
+    LQM_ENV: DEV
+    LQM_CONNECTION_KEY: poc-dev
+    LQM_CHANGELOG_FILE: db/changelog/db.changelog-master.yaml
+  script:
+    - |
+      for i in $(seq 1 30); do
+        (echo > /dev/tcp/postgres/5432) 2>/dev/null && break
+        sleep 2
+      done
+    - lqm checks run
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# 2. SQL que SERIA executado, publicado como artefato para revisao no MR.
+update-sql:
+  extends: .liquibase
+  stage: preview
+  script:
+    - liquibase update-sql --output-file=migration.sql
+    - echo "----- SQL gerado -----"
+    - cat migration.sql
+  artifacts:
+    name: "migration-sql-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - migration.sql
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# 3. Aplica de verdade no banco efemero e testa o rollback.
+update-and-rollback:
+  extends: .liquibase
+  stage: apply
+  script:
+    - liquibase update
+    - liquibase status --verbose
+    - liquibase history
+    - echo "Testando rollback do ultimo changeset..."
+    - liquibase rollback-count --count=1
+    - echo "Reaplicando..."
+    - liquibase update
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
