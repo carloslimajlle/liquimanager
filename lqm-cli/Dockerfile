@@ -4,7 +4,7 @@
 # It carries the drivers the jar bundles (SQL Server, PostgreSQL, Oracle, MySQL), so a job can point `--url` at any of them.
 # There is no ENTRYPOINT on purpose: a GitLab job runs `script:` lines through a shell in this image, and an entrypoint
 # would swallow them. Use `lqm <command>` from the script.
-FROM maven:3.9-eclipse-temurin-21 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 WORKDIR /w
 COPY pom.xml ./
 COPY lqm-policy-engine/pom.xml lqm-policy-engine/
