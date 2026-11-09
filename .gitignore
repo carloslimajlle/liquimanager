@@ -74,3 +74,8 @@ pgdata/
 
 # Local blob storage (lqm.storage.dir) used by FileSystemBlobStore
 data/
+
+# Valores do Helm com segredos nunca sao versionados
+values-producao.yaml
+values-*.local.yaml
+*.secret.yaml

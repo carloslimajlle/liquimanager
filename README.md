@@ -59,6 +59,7 @@ veja [deploy/mssql](deploy/mssql/README.md); para o **GitLab** de teste, [deploy
 | `lqm-cli/` | O comando `lqm` |
 | `lqm-spring-boot-starter/` | Auto-configuração para serviços que rodam Liquibase no startup |
 | `lqm-web/` | A SPA (React, Vite, Tailwind) |
+| `helm/` | Helm chart de produção e o guia de instalação em Kubernetes |
 | `deploy/` | Compose do ambiente local, Keycloak, SQL Server e o GitLab de teste |
 
 O guia para trabalhar no código, com as regras que não são óbvias, está em [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -88,6 +89,15 @@ O produto nasceu de observar serviços como estes (levantados em um repositório
 - Frontends React 19 + Vite + Tailwind 4 + TanStack Query + Zustand (monorepo Turbo).
 
 Essas características orientam a arquitetura.
+
+## Instalação em Kubernetes (Helm)
+
+O chart de produção está em [`helm/`](helm/README.md), com o guia completo (Secrets, OIDC, ingress, S3, Vault, runner de rollback). As imagens
+estão no Docker Hub (`carloslimadocker/lqm-api`, `lqm-web`, `lqm-cli`). Instalação direta a partir do repositório OCI do chart:
+
+```bash
+helm install lqm oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.1.0 -n lqm --create-namespace -f values-producao.yaml
+```
 
 ## Licença
 

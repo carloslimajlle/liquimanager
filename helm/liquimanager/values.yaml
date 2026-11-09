@@ -1,0 +1,224 @@
+# Valores padrao do chart do LiquiManager.
+#
+# O que NAO tem padrao e voce precisa informar:
+#   - database.* (um PostgreSQL 14+ seu: url e existingSecret)
+#   - oidc.issuerUri (o login e obrigatorio)
+#   - ingress.host e publicUrl
+# Veja helm/values-producao.example.yaml para um ponto de partida completo.
+#
+# Nenhuma senha deste arquivo serve para producao: use `existingSecret` em tudo que tem.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --------------------------------------------------------------------------------------------------
+# Imagens. Os tres Dockerfiles estao na raiz do repositorio (ver README, "Construindo as imagens").
+# --------------------------------------------------------------------------------------------------
+images:
+  # Prefixo do registry, sem barra no fim. Padrao: Docker Hub, usuario carloslimadocker (carloslimadocker/lqm-api:1.0.0 etc.).
+  # Para um registry proprio (espelho), troque aqui.
+  registry: carloslimadocker
+  pullPolicy: IfNotPresent
+  pullSecrets: []        # [{ name: meu-registry }]
+
+# --------------------------------------------------------------------------------------------------
+# API (Spring Boot). Aplica o proprio schema no banco ao subir (Liquibase, contexto `seed`).
+# --------------------------------------------------------------------------------------------------
+api:
+  image:
+    repository: lqm-api
+    tag: ""              # vazio: usa o appVersion do chart
+  replicaCount: 1        # mais de uma exige storage.type=s3 (ver abaixo)
+  # Os jobs (drift, metricas, scanner, notificacoes) rodam neste processo. Com worker.enabled=true eles passam
+  # para o worker e a API sobe com LQM_JOBS_ENABLED=false.
+  jobs:
+    enabled: true
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { memory: 1536Mi }
+  # A JVM respeita o limite do container; ajuste so se for apertar o limite.
+  javaOpts: ""
+  # O schema pode demorar na primeira subida: o startupProbe espera ate failureThreshold x periodSeconds.
+  startupProbe: { failureThreshold: 60, periodSeconds: 5 }
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Variaveis extras (Spring ou LQM_*), no formato do Kubernetes: [{ name: X, value: y }] ou com valueFrom.
+  extraEnv: []
+  extraEnvFrom: []       # [{ secretRef: { name: x } }]
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+
+# --------------------------------------------------------------------------------------------------
+# Interface web: o bundle da SPA atras do Nginx, que repassa /api para a API (inclusive o SSE).
+# --------------------------------------------------------------------------------------------------
+web:
+  image:
+    repository: lqm-web
+    tag: ""
+  replicaCount: 1
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# --------------------------------------------------------------------------------------------------
+# Jobs em um deployment proprio (D-20): a mesma imagem da API, com LQM_JOBS_ENABLED=true e sem porta publicada.
+# O ShedLock (lock no banco) impede que duas copias rodem o mesmo job, entao pode ter mais de uma replica.
+# --------------------------------------------------------------------------------------------------
+worker:
+  enabled: false
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 1Gi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# --------------------------------------------------------------------------------------------------
+# Runner de rollback (D-19). Busca no LiquiManager os rollbacks aprovados e os executa nos bancos alvo.
+# Precisa de rede ate o LiquiManager, o servidor git e os bancos alvo; nao precisa de permissao no Kubernetes.
+# Imagem: lqm-cli (a mesma da esteira).
+# --------------------------------------------------------------------------------------------------
+runner:
+  enabled: false
+  image:
+    repository: lqm-cli
+    tag: ""
+  # Token de servico com os escopos `runner` e `ingest` (tela Tokens do LiquiManager).
+  tokenSecret: { name: "", key: token }
+  # URL do repositorio git com o changelog, com credencial se precisar (ex.: https://oauth2:TOKEN@gitlab/grupo/repo.git).
+  gitUrlSecret: { name: "", key: url }
+  # Conta que pode desfazer changesets nos bancos alvo. E do runner: a API nunca a recebe.
+  dbCredentialsSecret: { name: "", usernameKey: username, passwordKey: password }
+  pollSeconds: 5
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+# --------------------------------------------------------------------------------------------------
+# Banco do proprio LiquiManager (PostgreSQL). A senha nunca fica na imagem nem no ConfigMap.
+# --------------------------------------------------------------------------------------------------
+database:
+  # jdbc:postgresql://host:5432/lqm  (sem usuario e senha na URL; RNF-06)
+  url: ""
+  username: lqm
+  # Senha em um Secret que voce criou (recomendado). Se vazio, o chart cria um Secret com `password`.
+  existingSecret: ""
+  existingSecretUserKey: username
+  existingSecretPasswordKey: password
+  password: ""
+
+# --------------------------------------------------------------------------------------------------
+# Login (OIDC, ex.: Keycloak). Obrigatorio: o chart recusa instalar sem `oidc.enabled=true` e `oidc.issuerUri`.
+# --------------------------------------------------------------------------------------------------
+oidc:
+  enabled: true
+  # `iss` dos tokens, exatamente como o navegador o ve: https://sso.exemplo.com/realms/liquimanager
+  issuerUri: ""
+  # Opcional: onde a API busca as chaves, se o issuer nao for alcancavel de dentro do cluster.
+  jwkSetUri: ""
+  audiences: lqm-api
+  # client publico (Authorization Code + PKCE) usado pela SPA
+  clientId: lqm-web
+  # Logins que recebem todas as permissoes, para a primeira concessao (separados por virgula). Retire depois.
+  bootstrapAdmins: ""
+
+# URL publica da interface (links em notificacoes e comentarios de MR).
+publicUrl: ""
+
+# --------------------------------------------------------------------------------------------------
+# Logs e relatorios das operacoes (D-09).
+#   local: um diretorio no pod (PVC). So com api.replicaCount=1.
+#   s3:    qualquer armazenamento S3 (MinIO, RustFS, AWS). Obrigatorio com mais de uma replica.
+# --------------------------------------------------------------------------------------------------
+storage:
+  type: local
+  local:
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      existingClaim: ""
+  s3:
+    endpoint: ""
+    bucket: lqm
+    region: us-east-1
+    # Secret com as chaves accessKey e secretKey
+    existingSecret: ""
+    accessKey: ""
+    secretKey: ""
+
+# --------------------------------------------------------------------------------------------------
+# Segredos das conexoes dos bancos alvo (D-04). O LiquiManager guarda so a referencia; a resolucao e em memoria.
+# --------------------------------------------------------------------------------------------------
+secretsProvider:
+  vault:
+    enabled: false
+    url: ""
+    namespace: ""
+    # Token OU AppRole (role-id + secret-id), em um Secret com as chaves token / roleId / secretId
+    existingSecret: ""
+    approlePath: approle
+  consul:
+    enabled: false
+    url: ""
+    existingSecret: ""     # chave: token
+  azure:
+    enabled: false
+    vaultUrl: ""
+    existingSecret: ""     # chave: token
+  cacheTtl: 5m
+
+# --------------------------------------------------------------------------------------------------
+# Integracao com o GitLab (leitura de arquivos, gatilho de promocao, comentario no MR, webhook).
+# --------------------------------------------------------------------------------------------------
+gitlab:
+  baseUrl: ""
+  # Secret com as chaves readToken e triggerToken
+  existingSecret: ""
+
+# --------------------------------------------------------------------------------------------------
+# Notificacoes por e-mail (servico HTTP que envia). Opcional.
+# --------------------------------------------------------------------------------------------------
+notifications:
+  email:
+    url: ""
+    existingSecret: ""     # chave: token
+
+# --------------------------------------------------------------------------------------------------
+# Rede
+# --------------------------------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  webPort: 80
+  apiPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""               # ex.: lqm.exemplo.com
+  annotations: {}
+  # Para o ingress-nginx, o SSE (/api/v1/events) precisa de buffer desligado e leitura longa; o chart acrescenta
+  # estas anotacoes sozinho quando o className e "nginx". Desligue aqui se usar outro controlador.
+  nginxSseAnnotations: true
+  tls:
+    enabled: false
+    secretName: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

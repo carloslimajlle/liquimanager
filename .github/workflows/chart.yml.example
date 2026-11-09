@@ -1,0 +1,29 @@
+name: chart
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: helm lint
+        run: helm lint helm/liquimanager -f helm/values-producao.example.yaml
+      - name: helm template (exemplo de producao)
+        run: helm template lqm helm/liquimanager -f helm/values-producao.example.yaml > /dev/null
+      - name: helm template (minimo)
+        run: >
+          helm template lqm helm/liquimanager
+          --set database.url=jdbc:postgresql://h:5432/lqm --set database.password=x
+          --set oidc.issuerUri=https://sso.exemplo.com/realms/lqm > /dev/null
+      - name: sem login o chart tem que recusar
+        run: |
+          if helm template lqm helm/liquimanager --set database.url=jdbc:postgresql://h:5432/lqm --set database.password=x > /dev/null 2>&1; then
+            echo "o chart instalou sem oidc.issuerUri"; exit 1
+          fi

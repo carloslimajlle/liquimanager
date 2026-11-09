@@ -5,3 +5,4 @@ lqm-web/dist
 data
 deploy
 lqm-web/storybook-static
+helm

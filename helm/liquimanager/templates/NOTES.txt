@@ -1,0 +1,14 @@
+LiquiManager {{ .Chart.AppVersion }} instalado como "{{ .Release.Name }}" em {{ .Release.Namespace }}.
+
+A API aplica o proprio schema no banco ao subir; a primeira subida demora. Acompanhe:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "lqm.fullname" . }}-api
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "lqm.fullname" . }}-api -f
+
+Acesso:
+{{- if .Values.ingress.enabled }}
+  {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host | default "<host do ingress>" }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "lqm.fullname" . }}-web 8088:{{ .Values.service.webPort }}
+  http://localhost:8088
+{{- end }}

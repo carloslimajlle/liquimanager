@@ -1,0 +1,83 @@
+{{- if .Values.runner.enabled }}
+{{- $sel := dict "root" . "component" "runner" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lqm.fullname" . }}-runner
+  labels:
+    {{- include "lqm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+spec:
+  # Uma copia basta: o runner busca o trabalho no LiquiManager, que entrega cada rollback a um so.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lqm.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lqm.labels" . | nindent 8 }}
+        {{- include "lqm.selectorLabels" $sel | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "lqm.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "lqm.imagePullSecrets" . | nindent 6 }}
+      # Ao receber SIGTERM o runner para de pedir trabalho e termina o rollback em andamento.
+      terminationGracePeriodSeconds: 630
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: {{ include "lqm.image" (dict "root" . "image" .Values.runner.image) | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["lqm", "runner", "--poll-seconds", {{ .Values.runner.pollSeconds | quote }}]
+          env:
+            - name: LQM_URL
+              value: {{ printf "http://%s-api:%v/api/v1" (include "lqm.fullname" .) .Values.service.apiPort | quote }}
+            - name: LQM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.tokenSecret.name }}
+                  key: {{ .Values.runner.tokenSecret.key }}
+            - name: LQM_GIT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.gitUrlSecret.name }}
+                  key: {{ .Values.runner.gitUrlSecret.key }}
+            {{- if .Values.runner.dbCredentialsSecret.name }}
+            - name: LQM_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.dbCredentialsSecret.name }}
+                  key: {{ .Values.runner.dbCredentialsSecret.usernameKey }}
+            - name: LQM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.dbCredentialsSecret.name }}
+                  key: {{ .Values.runner.dbCredentialsSecret.passwordKey }}
+            {{- end }}
+            {{- with .Values.runner.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.runner.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      {{- with .Values.runner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

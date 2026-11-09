@@ -1,0 +1,18 @@
+apiVersion: v2
+name: liquimanager
+description: >-
+  LiquiManager: control plane de mudancas de banco sobre Liquibase OSS
+  (API Spring Boot, interface web atras do Nginx, jobs e runner de rollback opcionais).
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/carloslimajlle/liquimanager
+sources:
+  - https://github.com/carloslimajlle/liquimanager
+keywords:
+  - liquibase
+  - database
+  - governance
+maintainers:
+  - name: carloslimajlle

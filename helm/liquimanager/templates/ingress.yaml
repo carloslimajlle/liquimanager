@@ -1,0 +1,45 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "lqm.fullname" . }}
+  labels:
+    {{- include "lqm.labels" . | nindent 4 }}
+  {{- $nginxSse := and (eq .Values.ingress.className "nginx") .Values.ingress.nginxSseAnnotations }}
+  {{- if or .Values.ingress.annotations $nginxSse }}
+  annotations:
+    {{- if $nginxSse }}
+    # O feed ao vivo (SSE) nao pode ser bufferizado e uma conexao parada e normal (a API manda um comentario a cada 20 s).
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ required "ingress.host e obrigatorio com ingress.tls.enabled=true" .Values.ingress.host | quote }}
+      secretName: {{ required "ingress.tls.secretName e obrigatorio com ingress.tls.enabled=true" .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . | quote }}
+      {{- end }}
+      http:
+        paths:
+          # Tudo entra pelo web: o Nginx dele repassa /api para a API.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "lqm.fullname" . }}-web
+                port:
+                  number: {{ .Values.service.webPort }}
+{{- end }}

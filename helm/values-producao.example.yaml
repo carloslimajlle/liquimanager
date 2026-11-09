@@ -1,0 +1,61 @@
+# Ponto de partida para um ambiente real. Copie, troque o que tem <...> e NAO versione com segredos.
+#
+#   helm install lqm ./helm/liquimanager -n lqm --create-namespace -f values-producao.yaml
+#
+# Antes, crie os Secrets (nada de senha neste arquivo):
+#   kubectl -n lqm create secret generic lqm-db --from-literal=username=lqm --from-literal=password='<senha>'
+#   kubectl -n lqm create secret generic lqm-s3 --from-literal=accessKey='<chave>' --from-literal=secretKey='<segredo>'
+
+images:
+  registry: carloslimadocker                  # Docker Hub: lqm-api, lqm-web e lqm-cli
+  # pullSecrets: [{ name: registry-credentials }]   # so se os repositorios no Docker Hub forem privados
+
+database:
+  url: jdbc:postgresql://<host-do-postgres>:5432/lqm
+  existingSecret: lqm-db
+
+oidc:
+  enabled: true
+  issuerUri: https://sso.exemplo.com/realms/liquimanager
+  clientId: lqm-web
+  audiences: lqm-api
+  bootstrapAdmins: <seu.login>                # para a primeira concessao; retire depois
+
+publicUrl: https://lqm.exemplo.com
+
+storage:
+  type: s3
+  s3:
+    endpoint: https://s3.exemplo.com
+    bucket: lqm
+    existingSecret: lqm-s3
+
+api:
+  replicaCount: 2
+  podDisruptionBudget: { enabled: true, minAvailable: 1 }
+
+worker:
+  enabled: true                               # jobs fora da API (D-20)
+
+ingress:
+  enabled: true
+  className: nginx
+  host: lqm.exemplo.com
+  tls: { enabled: true, secretName: lqm-tls }
+
+secretsProvider:
+  vault:
+    enabled: true
+    url: https://vault.exemplo.com
+    existingSecret: lqm-vault                 # chaves: token ou roleId + secretId
+
+gitlab:
+  baseUrl: https://gitlab.exemplo.com
+  existingSecret: lqm-gitlab                  # chaves: readToken, triggerToken
+
+# Rollback pela interface (D-19). Opcional.
+runner:
+  enabled: false
+  tokenSecret: { name: lqm-runner, key: token }
+  gitUrlSecret: { name: lqm-runner-git, key: url }
+  dbCredentialsSecret: { name: lqm-runner-db }

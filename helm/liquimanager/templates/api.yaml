@@ -1,0 +1,169 @@
+{{- $sel := dict "root" . "component" "api" -}}
+{{- $local := and (eq .Values.storage.type "local") .Values.storage.local.persistence.enabled -}}
+{{- if and $local (not .Values.storage.local.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "lqm.fullname" . }}-blobs
+  labels:
+    {{- include "lqm.labels" . | nindent 4 }}
+spec:
+  accessModes: [{{ .Values.storage.local.persistence.accessMode | quote }}]
+  {{- with .Values.storage.local.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.local.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lqm.fullname" . }}-api
+  labels:
+    {{- include "lqm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  {{- if $local }}
+  # Um volume ReadWriteOnce nao pode ser montado por duas copias ao mesmo tempo: troca de pod sem sobreposicao.
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "lqm.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lqm.labels" . | nindent 8 }}
+        {{- include "lqm.selectorLabels" $sel | nindent 8 }}
+        {{- with .Values.api.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if not .Values.database.existingSecret }}
+        checksum/db-secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "lqm.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "lqm.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: {{ include "lqm.image" (dict "root" . "image" .Values.api.image) | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            {{- include "lqm.commonEnv" . | nindent 12 }}
+            - name: LQM_JOBS_ENABLED
+              value: {{ ternary "false" (ternary "true" "false" .Values.api.jobs.enabled) .Values.worker.enabled | quote }}
+            {{- if eq .Values.storage.type "local" }}
+            - name: LQM_STORAGE_DIR
+              value: /var/lib/lqm/blobs
+            {{- end }}
+            {{- with .Values.api.javaOpts }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.api.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          startupProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: {{ .Values.api.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.api.startupProbe.failureThreshold }}
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq .Values.storage.type "local" }}
+            - name: blobs
+              mountPath: /var/lib/lqm/blobs
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if eq .Values.storage.type "local" }}
+        - name: blobs
+          {{- if $local }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.local.persistence.existingClaim | default (printf "%s-blobs" (include "lqm.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lqm.fullname" . }}-api
+  labels:
+    {{- include "lqm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "lqm.selectorLabels" $sel | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.apiPort }}
+      targetPort: http
+{{- if and .Values.api.podDisruptionBudget.enabled (gt (int .Values.api.replicaCount) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "lqm.fullname" . }}-api
+  labels:
+    {{- include "lqm.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.api.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "lqm.selectorLabels" $sel | nindent 6 }}
+{{- end }}
