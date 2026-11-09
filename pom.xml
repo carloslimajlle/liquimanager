@@ -77,7 +77,7 @@
     <bouncycastle.version>1.86</bouncycastle.version>
     <!-- The audit trail as a PDF (Apache 2.0, like this project). -->
     <pdfbox.version>3.0.8</pdfbox.version>
-    <mssql-jdbc.version>13.6.1.jre11</mssql-jdbc.version>
+    <mssql-jdbc.version>13.6.2.jre11</mssql-jdbc.version>
   </properties>
 
   <dependencyManagement>
