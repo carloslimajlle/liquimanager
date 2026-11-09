@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: lqm-api
+
+  datasource:
+    url: ${LQM_DB_URL:jdbc:postgresql://localhost:5432/lqm}
+    username: ${LQM_DB_USERNAME:lqm}
+    # In DEV/HML/PRD the password comes from the secrets provider (D-04), never from here.
+    password: ${LQM_DB_PASSWORD:lqm}
+    hikari:
+      maximum-pool-size: 10
+      pool-name: lqm-pool
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # The schema always belongs to Liquibase. Hibernate never creates or alters a table.
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    # `seed` loads the workspace, environments, role templates and the check catalogue.
+    # Turn it off in an environment that builds its own data.
+    contexts: ${LQM_LIQUIBASE_CONTEXTS:seed}
+
+  jackson:
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: false
+
+server:
+  port: ${LQM_PORT:8080}
+  error:
+    include-message: always
+  shutdown: graceful
+
+# Dates are stored in UTC and displayed in America/Sao_Paulo (RNF-12). The JVM runs
+# in UTC so that no calculation depends on the host timezone.
+lqm:
+  display-timezone: America/Sao_Paulo
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: lqm-api
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /api/docs
+
+logging:
+  level:
+    liquibase: INFO
+
+---
+# Local profile: runs against deploy/docker-compose.yml, without SSO.
+spring:
+  config:
+    activate:
+      on-profile: local
+  liquibase:
+    contexts: seed
+logging:
+  level:
+    io.github.carloslimajlle.liquimanager: DEBUG

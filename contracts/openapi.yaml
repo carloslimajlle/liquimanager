@@ -1,0 +1,3823 @@
+openapi: 3.1.0
+
+# LiquiManager API contract.
+#
+# This hand-written, version-controlled file is the source of truth for the
+# contract: backend and frontend work against it in parallel, without waiting for
+# the implementation. springdoc publishes the REAL contract at /api/docs; phase 1
+# should diff the two in CI and fail when they drift apart.
+#
+# Coverage: ingestion, effective policies, operations, matrix, dashboard and /me —
+# the critical path of the MVP (docs/11, phase 1). The remaining resources from
+# docs/06 (governance, drift, administration) arrive as they get implemented.
+
+info:
+  title: LiquiManager API
+  version: 1.0.0
+  description: |
+    Control plane for database changes, built on Liquibase OSS.
+
+    Authentication: users with an OIDC JWT (D-03, Keycloak); collectors with a
+    service token `lqm_<prefix8>_<secret32>`. ISO-8601 dates in UTC. RFC 9457 errors.
+  contact:
+    name: LiquiManager team
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://liquimanager.{ambiente}/api/v1
+    variables:
+      ambiente:
+        default: dev.exemplo.interno
+        description: Per-environment domain (D-10)
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+security:
+  - oidc: []
+
+tags:
+  - name: Ingestion
+    description: Receives operations from the collectors (starter, CLI and scanner).
+  - name: Operations
+    description: Querying operations, their changesets and the live feed (screens 02 and 05).
+  - name: Developer
+    description: A changelog as it lives in the repository, read-only (screen 03).
+  - name: Matrix
+    description: State of each changeset per environment, the Deployment Matrix (screen 04).
+  - name: Policies
+    description: The policy library, and the effective package collectors evaluate (screen 07).
+  - name: Dashboard
+    description: DORA, policy and drift indicators (screen 01).
+  - name: Notifications
+    description: Who is told about what, by e-mail, Teams or Slack. Messages are queued and retried.
+  - name: Rollback
+    description: Targeted rollback requested from the UI, approved, and carried out by a runner that pulls the work.
+  - name: Drift
+    description: Schema drift against the last clean snapshot, and the scanner that finds what ran outside the process.
+  - name: Access
+    description: Who can do what (screen 08), enforced on every user request by the rules table.
+  - name: Catalogue
+    description: Teams, projects, changelogs, environments, connections, pipelines and service tokens (the administration screens). Every write is audited.
+  - name: Session
+    description: Authenticated user, effective permissions and visible workspaces.
+
+paths:
+  /ingest/operations:
+    post:
+      tags: [Ingestion]
+      operationId: ingestOperation
+      summary: Receives an executed Liquibase operation
+      description: |
+        Sent by the collectors at the end of every operation, and optionally at the
+        start with `status=RUNNING`. **Idempotent on `operationId`**: resending the
+        same id updates the record and answers 200 instead of 202.
+
+        Rules applied during ingestion (docs/06):
+        1. Resolve `connection.key`; without it, match on the normalised
+           `hostFingerprint` of the `jdbcUrl`; with no match, create an "unverified"
+           connection.
+        2. Upsert the changeset on (changelog, id, author, filePath) and update
+           `changeset_state`.
+        3. Set `isBreakFix` when a label contains `break-fix`.
+        4. A source not allowed for the environment raises an `OutOfProcessChange`
+           finding.
+        5. Publish `operation.ingested` (SSE, notifications, metrics).
+      security:
+        - serviceToken: [ingest]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IngestOperation' }
+      responses:
+        '202':
+          description: Accepted (new operation)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestAccepted' }
+        '200':
+          description: Already received — idempotent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestAccepted' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+
+  /policies/checksum-check:
+    post:
+      tags: [Ingestion]
+      operationId: checkChecksums
+      summary: Which changesets already ran in the environment and were edited afterwards (ChecksumChanged)
+      description: |
+        The collector sends the checksums it computes now; the answer lists the ones executed in `env` with another checksum, each with
+        `appliedChecksum`, `currentChecksum`, the commit that applied it and, when the repository can be read, the lines that changed
+        (`diff`, `-` only in the applied version and `+` only in the current one, comments left out). `equivalent` is true when no line
+        that counts differs. The new version is read at `commit` (the head of the merge request), else at the default branch.
+        An id applied under another author or file that the changelog no longer declares comes back with `identityChanged` true,
+        `appliedAuthor` and `appliedFilePath`: to Liquibase it is a new changeset.
+        When the caller names the `changelog` it read, what the environment ran and that changelog no longer declares comes back with
+        `removed` true (a warning: Liquibase ignores it, but the history stops matching the repository).
+        It answers, it does not decide.
+      security:
+        - serviceToken: [ingest, 'checks:read']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project, env, changesets]
+              properties:
+                project: { type: string }
+                env: { type: string }
+                commit: { type: string }
+                changelog: { type: string, description: 'The changelog file the caller read, as it reports it; enables the removed-changeset answer.' }
+                changesets:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      author: { type: string }
+                      filePath: { type: string }
+                      checksum: { type: string }
+      responses:
+        '200':
+          description: The changesets that changed (empty when none)
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /pipelines/{id}/stages/{stageId}/preview:
+    get:
+      tags: [Matrix]
+      operationId: getPromotionPreview
+      summary: What promoting to a stage would meet, before the click
+      description: |
+        The changesets the stage before it ran and this one did not (`ready`), those among them edited after the stage before ran them
+        (`edited`, with `appliedChecksum` and `currentChecksum`) and the ones the changelog has that neither stage ran (`notInPrevious`).
+        The deploy holds back the last two (D-22). Answers `gated: false` for the first stage. It fires nothing.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: stageId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The preview
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /policies/promotion-gate:
+    get:
+      tags: [Ingestion]
+      operationId: getPromotionGate
+      summary: What the stage before an environment already has executed (D-22)
+      description: |
+        What is in a later environment has to be in the one before it. For a project and an environment, answers whether the
+        environment is a later stage of one of the project's pipelines (`gated`), which environment comes before it, and the
+        changesets LiquiManager knows are executed in that stage's database. `lqm update` compares that with what it is about to
+        apply and stops with exit code 3 when something is missing. It answers, it does not decide.
+      security:
+        - serviceToken: [ingest, 'checks:read']
+      parameters:
+        - { name: project, in: query, required: true, schema: { type: string } }
+        - { name: env, in: query, required: true, schema: { type: string }, example: HML }
+      responses:
+        '200':
+          description: The gate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  gated: { type: boolean, description: False for the first stage and for an environment that is no stage of the project. }
+                  previousEnv: { type: string }
+                  executed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        author: { type: string }
+                        filePath: { type: string }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /policies/effective:
+    get:
+      tags: [Ingestion]
+      operationId: getEffectivePolicies
+      summary: Effective check package for a project and environment
+      description: |
+        Precedence: stage > changelog > project > workspace. Answers with an `ETag`;
+        the collector caches it and revalidates with `If-None-Match`. Offline, the
+        collector falls back to its last cache (ADR-004: fail-open).
+      security:
+        - serviceToken: [ingest, 'checks:read']
+      parameters:
+        - { name: project, in: query, required: true, schema: { type: string }, example: gate }
+        - { name: env, in: query, required: true, schema: { type: string }, example: PRD }
+        - { name: changelog, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Effective package
+          headers:
+            ETag:
+              schema: { type: string }
+              example: W/"a91c"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EffectivePolicies' }
+        '304': { description: Unchanged since the submitted ETag }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /operations:
+    get:
+      tags: [Operations]
+      operationId: listOperations
+      summary: Lists operations (screen 05)
+      parameters:
+        - { name: status,     in: query, schema: { $ref: '#/components/schemas/OperationStatus' } }
+        - { name: type,       in: query, schema: { $ref: '#/components/schemas/OperationType' } }
+        - { name: command,    in: query, schema: { $ref: '#/components/schemas/Command' } }
+        - { name: env,        in: query, schema: { type: string } }
+        - { name: connection, in: query, schema: { type: string } }
+        - { name: project,    in: query, schema: { type: string } }
+        - { name: changelog,  in: query, schema: { type: string } }
+        - { name: executedBy, in: query, schema: { type: string } }
+        - { name: from,       in: query, schema: { type: string, format: date-time } }
+        - { name: to,         in: query, schema: { type: string, format: date-time } }
+        - { name: q,          in: query, schema: { type: string }, description: Free-text search }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/sort'
+      responses:
+        '200':
+          description: Page of operations
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/OperationSummary' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /operations/kpis:
+    get:
+      tags: [Operations]
+      operationId: getOperationKpis
+      summary: KPIs shown at the top of screen 05
+      description: |
+        Accepts the same filters as `GET /operations`, and describes exactly that set.
+
+        With no `from` the window is unbounded (all time) and `trendPct` is absent. The
+        "last 7 days" default belongs to the screen, which sends `from` explicitly; a
+        server-side default would make "all time" silently mean "a week". With a `from`,
+        `trendPct` compares the window with the one of the same length right before it.
+
+        `successRate` is over FINISHED operations (SUCCESS, FAILURE, BLOCKED); RUNNING and
+        CANCELED count in neither side. `caughtBeforeProd` counts failures and policy
+        blocks in environments that are not production; `failuresNonProd` is the failures
+        among them.
+
+        As everywhere in this API, null fields are omitted from the JSON.
+      responses:
+        '200':
+          description: KPIs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationKpis' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /operations/{id}:
+    get:
+      tags: [Operations]
+      operationId: getOperation
+      summary: Operation detail (screen 02)
+      parameters:
+        - $ref: '#/components/parameters/operationId'
+      responses:
+        '200':
+          description: Operation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationDetail' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{id}/findings:
+    get:
+      tags: [Catalog]
+      operationId: listProjectFindings
+      summary: The policy findings of a project
+      description: Newest first, with `counts` by result over all of the project's findings (not only the page).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: result, in: query, schema: { type: string, enum: [BLOCKED, WARNED, PASSED] } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 25, maximum: 200 } }
+      responses:
+        '200':
+          description: A page of findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content: { type: array, items: { type: object } }
+                  page: { type: integer }
+                  size: { type: integer }
+                  totalElements: { type: integer, format: int64 }
+                  counts: { type: object, additionalProperties: { type: integer, format: int64 } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{id}/drift:
+    get:
+      tags: [Catalog]
+      operationId: getProjectDrift
+      summary: The latest drift check of each database of the project
+      description: |
+        The databases linked to the project and those its operations ran on. A database never checked is listed with no `runId`:
+        "never checked" is not "clean".
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: One entry per database, in the order of the environments
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{id}/approvals:
+    get:
+      tags: [Catalog]
+      operationId: listProjectApprovals
+      summary: Everything of the project that waits for a decision
+      description: |
+        Promotions, rollback requests and policy exceptions in `REQUESTED`, each with `mine` (asked by the caller) and `decidable`
+        (the caller holds the permission in scope and SoD-1 and SoD-2 do not forbid it). `/me/pending` is the same list restricted to
+        what the caller can decide, across projects.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The open requests, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items: { type: array, items: { type: object } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{id}/changesets:
+    get:
+      tags: [Catalog]
+      operationId: listProjectChangesets
+      summary: The changesets of a project, with the status in each environment
+      description: |
+        Newest first. Each row carries `environments`, one entry per environment where the changeset is known, with the worst status
+        among that environment's databases (FAILED, then EXECUTED, then the rest); the top-level `environments` are the table columns.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string }, description: "Changeset id, author or file" }
+        - { name: author, in: query, schema: { type: string } }
+        - { name: release, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [EXECUTED, FAILED, ROLLED_BACK, PENDING] }, description: In any environment }
+        - { name: changelog, in: query, schema: { type: string, format: uuid } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 25, maximum: 200 } }
+      responses:
+        '200':
+          description: A page of changesets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        changesetId: { type: string }
+                        author: { type: string }
+                        filePath: { type: string }
+                        changelogId: { type: string, format: uuid }
+                        changelog: { type: string }
+                        release: { type: string }
+                        hasRollback: { type: boolean }
+                        isBreakFix: { type: boolean }
+                        firstSeenAt: { type: string, format: date-time }
+                        environments:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              environment: { type: string }
+                              status: { type: string }
+                              deployedAt: { type: string, format: date-time }
+                  page: { type: integer }
+                  size: { type: integer }
+                  totalElements: { type: integer, format: int64 }
+                  environments: { type: array, items: { type: string } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{id}/changesets/summary:
+    get:
+      tags: [Catalog]
+      operationId: getProjectChangesetsSummary
+      summary: What each environment holds of the project
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: One entry per environment, in the order of the environments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    environment: { type: string }
+                    executed: { type: integer, format: int64 }
+                    failed: { type: integer, format: int64 }
+                    rolledBack: { type: integer, format: int64 }
+                    lastDeployedAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /changesets/{id}/versions:
+    get:
+      tags: [Catalog]
+      operationId: getChangesetVersions
+      summary: The version each database ran against the one in the repository now
+      description: |
+        One entry per database where the changeset is executed, with `appliedChecksum` and `currentChecksum`; `changed` is true when they
+        differ, and then `diff` carries the lines that changed (`sourceKnown` false when the repository could not be read).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The versions
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /changesets/{id}/source:
+    get:
+      tags: [Catalog]
+      operationId: getChangesetSource
+      summary: What the changeset says, read from the repository
+      description: |
+        The file the changeset lives in, with `startLine`/`endLine` marking the changeset itself (and the rollback it carries) when it
+        could be isolated (XML, YAML and formatted SQL). Read from `ref` when given; otherwise from the default branch first, then from the
+        commits of the operations that evaluated it, newest first. Always 200: when the file cannot be read, `found` is false and `reason`
+        says why (`NO_REPOSITORY`, `NOT_CONFIGURED`, `NOT_FOUND`, `UNREACHABLE`).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: ref, in: query, schema: { type: string }, description: "A branch, tag or commit id" }
+      responses:
+        '200':
+          description: The source, or why it could not be read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  found: { type: boolean }
+                  reason: { type: string, enum: [NO_REPOSITORY, NOT_CONFIGURED, NOT_FOUND, UNREACHABLE] }
+                  detail: { type: string }
+                  path: { type: string }
+                  format: { type: string, enum: [XML, YAML, JSON, SQL, TEXT] }
+                  ref: { type: string }
+                  refKind: { type: string, enum: [BRANCH, COMMIT] }
+                  tried: { type: array, items: { type: string } }
+                  content: { type: string }
+                  startLine: { type: integer }
+                  endLine: { type: integer }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+
+  /promotions/{id}/changes:
+    get:
+      tags: [Pipelines]
+      operationId: getPromotionChanges
+      summary: What approving the promotion would apply
+      description: |
+        The changesets executed in the stage before the promotion's stage and not yet in its own: what an approver reads before deciding.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The changesets, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, format: uuid }
+                    changesetId: { type: string }
+                    author: { type: string }
+                    filePath: { type: string }
+                    changelog: { type: string }
+                    release: { type: string }
+                    hasRollback: { type: boolean }
+                    isBreakFix: { type: boolean }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /changesets/{id}:
+    get:
+      tags: [Catalog]
+      operationId: getChangeset
+      summary: One changeset with everything known about it
+      description: |
+        Identity (author, file, checksum, labels), its state in every database, the operations that touched it (50 newest), the policy
+        findings about it and the rollbacks asked for it.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The changeset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  changesetId: { type: string }
+                  author: { type: string }
+                  filePath: { type: string }
+                  checksum: { type: string }
+                  labels: { type: string }
+                  contexts: { type: string }
+                  comments: { type: string }
+                  release: { type: string }
+                  hasRollback: { type: boolean }
+                  isBreakFix: { type: boolean }
+                  firstSeenAt: { type: string, format: date-time }
+                  changelogId: { type: string, format: uuid }
+                  changelog: { type: string }
+                  projectId: { type: string, format: uuid }
+                  project: { type: string }
+                  states: { type: array, items: { type: object } }
+                  operations: { type: array, items: { type: object } }
+                  findings: { type: array, items: { type: object } }
+                  rollbacks: { type: array, items: { type: object } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /operations/{id}/changesets:
+    get:
+      tags: [Operations]
+      operationId: listOperationChangesets
+      summary: Changesets evaluated in the operation
+      description: "Fixed ordering: failures first, then execution order."
+      parameters:
+        - $ref: '#/components/parameters/operationId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+      responses:
+        '200':
+          description: Page of changesets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/OperationChangeset' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /stream/operations:
+    get:
+      tags: [Operations]
+      operationId: streamOperations
+      summary: SSE feed of ingested operations
+      description: |
+        An `operation.ingested` event carrying an `OperationSummary` payload.
+        RNF-19: the dashboard's live table updates in under 5 s.
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /pipelines/{id}/matrix:
+    get:
+      tags: [Matrix]
+      operationId: getDeploymentMatrix
+      summary: Changeset by environment matrix (screen 04)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: release, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Matrix
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeploymentMatrix' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /projects/{projectId}/changelogs/{id}:
+    get:
+      tags: [Developer]
+      operationId: getChangelogDeveloperView
+      summary: A changelog as Developer Mode shows it (screen 03)
+      description: |
+        What the platform knows about the changelog: its changesets with their state in production (`EXECUTED`,
+        `PENDING`, `FAILED`), the files that hold them, the KPIs, the last `flow` and the findings of the latest
+        operation that evaluated any. The file contents come from `/files`.
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangelogDeveloperView' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    put:
+      tags: [Catalogue]
+      operationId: updateChangelog
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      summary: Updates a changelog (audited as changelog.update)
+      description: >
+        `policyPackageId` is written as sent, so an edit must send the package the changelog already has,
+        or use the audited assign/unassign of the package instead.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ChangelogRequest' } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Changelog' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{projectId}/changelogs/{id}/files:
+    get:
+      tags: [Developer]
+      operationId: getChangelogFile
+      summary: One file of the project repository, read from GitLab by the backend
+      description: |
+        At the default branch, or at `commit` (a branch, tag or commit id; the commit of an operation shows what really
+        ran). A path Liquibase reports relative to the changelog's root is also tried under each folder above the master
+        changelog. The read token is configuration (`lqm.gitlab.read-token`) and never leaves the backend.
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: path, in: query, required: true, schema: { type: string }, description: "Relative to the repository." }
+        - { name: commit, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: The file
+          content: { text/plain: { schema: { type: string } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: "No repository URL on the project, GitLab not configured, an unsafe path or ref, or a file over 1 MB" }
+        '502': { description: "GitLab refused or could not be reached (LQM-070); the message carries the status only" }
+
+  /pipelines/{id}/timeline:
+    get:
+      tags: [Matrix]
+      operationId: getPipelineTimeline
+      summary: Deploys and promotions of a pipeline, newest first (screen 04, Timeline mode)
+      description: |
+        A deploy is a successful `database-change` operation that executed changesets on the connection of one of the
+        stages (the release is the first `release-*` label among them). A promotion is a request made through the promote
+        endpoint. At most 500 of each. Without `from`/`to` the last 30 days.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string }, description: ISO date or instant. }
+        - { name: to, in: query, schema: { type: string }, description: ISO date or instant; a date includes that whole day. }
+      responses:
+        '200':
+          description: Events
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/TimelineEvent' } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: A date that is not ISO-8601 }
+
+  /promotions:
+    get:
+      tags: [Matrix]
+      operationId: listPromotions
+      summary: Promotions of the workspace, newest first
+      parameters:
+        - { name: pipeline, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [REQUESTED, TRIGGERED, FAILED, REJECTED, CANCELED, EXPIRED] } }
+      responses:
+        '200': { description: Promotions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Promotion' } } } } }
+  /promotions/{id}/approve:
+    post:
+      tags: [Matrix]
+      operationId: approvePromotion
+      summary: Approves a promotion that waits for a decision, which fires the GitLab trigger
+      description: |
+        Needs `promote:<env>` of the stage. Whoever asked for the promotion cannot approve it (SoD-2, `LQM-010`, 409). Only one
+        approval wins; a second one answers 409 `LQM-409`. A GitLab refusal is a 502 `LQM-070` and leaves the promotion FAILED.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Triggered, content: { application/json: { schema: { $ref: '#/components/schemas/Promotion' } } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '409': { description: "The requester cannot approve (LQM-010) or the promotion is no longer waiting (LQM-409)" }
+        '502': { description: "GitLab refused or could not be reached (LQM-070)" }
+  /promotions/{id}/reject:
+    post:
+      tags: [Matrix]
+      operationId: rejectPromotion
+      summary: Rejects a promotion that waits for a decision; GitLab is not called
+      description: Needs `promote:<env>` of the stage.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Rejected, content: { application/json: { schema: { $ref: '#/components/schemas/Promotion' } } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '409': { description: "The promotion is no longer waiting (LQM-409)" }
+  /promotions/{id}/cancel:
+    post:
+      tags: [Matrix]
+      operationId: cancelPromotion
+      summary: The requester takes the promotion back
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Canceled, content: { application/json: { schema: { $ref: '#/components/schemas/Promotion' } } } }
+        '403': { description: Only the person who asked can cancel }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '409': { description: "The promotion is no longer waiting (LQM-409)" }
+
+  /pipelines/{id}/stages/{stageId}/promote:
+    post:
+      tags: [Matrix]
+      operationId: promoteStage
+      summary: Promote a release to a stage
+      description: |
+        Needs `promote:<env>` for the environment of the stage. Fires the GitLab pipeline trigger of the pipeline's
+        `gitlabProjectId` and `gitlabTriggerRef`, with the variables `LQM_PROMOTE_TO` (environment code),
+        `LQM_PROMOTE_STAGE`, `LQM_PROMOTE_BY` and, when given, `LQM_PROMOTE_RELEASE`. The trigger token is configuration
+        (`lqm.gitlab.trigger-token`), never stored. What the run does shows up later as an ordinary operation.
+
+        A stage with `requiresApproval` does NOT fire the trigger: it records a `REQUESTED` promotion (202) that a second
+        person approves or rejects (`/promotions/{id}/approve`), and only the approval fires it (SoD-2). With `autoRequest` on the
+        stage, that request also opens by itself, as `system`, when a deploy with executed changesets is reported for the stage before.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: stageId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                release: { type: string, description: "For example release-2.1.0; leave out to promote whatever is pending." }
+      responses:
+        '201':
+          description: Triggered
+          content: { application/json: { schema: { $ref: '#/components/schemas/Promotion' } } }
+        '202':
+          description: The stage requires approval; the request waits for a second person
+          content: { application/json: { schema: { $ref: '#/components/schemas/Promotion' } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: "First stage, no GitLab project or ref on the pipeline, or GitLab not configured" }
+        '502': { description: "GitLab refused or could not be reached (LQM-070). The attempt is recorded as FAILED; the message carries the status only." }
+
+  /policy-checks/{id}/copy:
+    post:
+      tags: [Policies]
+      operationId: copyPolicyCheck
+      summary: Customise a check by copying it
+      description: |
+        A builtin is never edited in place; its copy is. A copy of a builtin keeps running the
+        builtin logic (a copy of a copy points at the root builtin), under its own code, severity
+        and parameters. Without a `code` one is chosen (`<Code>Custom`, `<Code>Custom2`...).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { code: { type: string } } }
+      responses:
+        '201': { description: The copy, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyCheckDefinition' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '409': { description: The code is taken }
+
+  /policy-checks/{id}/test:
+    post:
+      tags: [Policies]
+      operationId: testPolicyCheck
+      summary: Dry-run a check over a pasted changelog
+      description: |
+        Same engine and same SQL generation as `lqm checks run`, over an OFFLINE database of the
+        chosen dialect: nothing touches a real database. `parameters` and `severity` try unsaved
+        edits. A changelog that does not parse is a 422.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [changelogContent, format]
+              properties:
+                changelogContent: { type: string }
+                format:      { type: string, enum: [XML, YAML, JSON, SQL] }
+                dialect:     { type: string, enum: [mssql, postgresql, oracle, mysql], default: mssql }
+                environment: { type: string }
+                production:  { type: boolean }
+                severity:    { $ref: '#/components/schemas/Severity' }
+                parameters:  { type: object }
+      responses:
+        '200':
+          description: Findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  gate:       { $ref: '#/components/schemas/GateResult' }
+                  changesets: { type: integer }
+                  findings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        check:     { type: string }
+                        severity:  { $ref: '#/components/schemas/Severity' }
+                        changeset: { type: string }
+                        message:   { type: string }
+        '422': { description: Unreadable changelog or unknown format }
+
+  /policy-packages:
+    get:
+      tags: [Policies]
+      operationId: listPolicyPackages
+      summary: Policy packages, with how many checks and assignments each has
+      responses:
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '200': { description: Packages, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/PolicyPackage' } } } } }
+    post:
+      tags: [Policies]
+      operationId: createPolicyPackage
+      summary: Create a package
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PolicyPackageBody' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyPackage' } } } }
+        '422': { description: Unknown check or threshold out of range }
+
+  /policy-packages/{id}:
+    get:
+      tags: [Policies]
+      operationId: getPolicyPackage
+      summary: One package with its checks
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: The package with its checks, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyPackage' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    put:
+      tags: [Policies]
+      operationId: updatePolicyPackage
+      summary: Edit a package; `checks`, when sent, REPLACES the list
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PolicyPackageBody' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyPackage' } } } }
+        '409': { description: The default package cannot be renamed }
+    delete:
+      tags: [Policies]
+      operationId: deletePolicyPackage
+      summary: Delete a package
+      description: Refused with 409 for the default package and for one that is assigned somewhere.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '409': { description: "Default package, or still assigned" }
+
+  /policy-packages/{id}/assign:
+    post:
+      tags: [Policies]
+      operationId: assignPolicyPackage
+      summary: Make a changelog or a pipeline stage use this package
+      description: Send exactly one of `changelogId` or `stageId`. `/unassign` takes the same body.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                changelogId: { type: string, format: uuid }
+                stageId:     { type: string, format: uuid }
+      responses:
+        '200': { description: Assigned }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: Not exactly one target }
+
+  /policy-exceptions:
+    get:
+      tags: [Policies]
+      operationId: listPolicyExceptions
+      summary: Exceptions, newest first (up to 200)
+      description: An approved or requested exception past its expiry reads as EXPIRED.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [REQUESTED, APPROVED, REJECTED, REVOKED, EXPIRED] } }
+      responses:
+        '200': { description: Exceptions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/PolicyException' } } } } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+    post:
+      tags: [Policies]
+      operationId: requestPolicyException
+      summary: Ask for a check not to block
+      description: |
+        The justification needs 20 characters or more and `expiresAt` has to be in the future and within
+        the workspace limit (`lqm.exceptions.max-days`, 30 by default): an exception always expires. A
+        changeset exception also needs the `project`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [check, justification, expiresAt]
+              properties:
+                check:         { type: string, example: RollbackRequired }
+                project:       { type: string, description: Project slug; empty means every project. }
+                changeset:     { type: string, description: Changeset id; empty means every changeset in scope. }
+                environment:   { type: string, description: Environment code; empty means every environment. }
+                justification: { type: string, minLength: 20 }
+                expiresAt:     { type: string, format: date-time }
+      responses:
+        '201': { description: Requested, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyException' } } } }
+        '422': { description: Invalid request }
+
+  /policy-exceptions/{id}/approve:
+    post:
+      tags: [Policies]
+      operationId: approvePolicyException
+      summary: Approve a requested exception
+      description: |
+        LQM-010 when the approver is the requester (SoD-2) or the author of the changeset it covers
+        (SoD-1). LQM-030 when it has already expired. Once approved, collectors receive it in
+        `GET /policies/effective` until it expires or is revoked.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Approved, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyException' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '409': { description: "LQM-010 separation of duties, LQM-030 expired, or not in the REQUESTED state" }
+
+  /policy-exceptions/{id}/reject:
+    post:
+      tags: [Policies]
+      operationId: rejectPolicyException
+      summary: Reject a requested exception
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Rejected, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyException' } } } }
+        '409': { description: Not in the REQUESTED state }
+
+  /policy-exceptions/{id}/revoke:
+    post:
+      tags: [Policies]
+      operationId: revokePolicyException
+      summary: End an approved exception early
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Revoked, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyException' } } } }
+        '409': { description: Not in the APPROVED state }
+
+  /enforcement:
+    get:
+      tags: [Policies]
+      operationId: getEnforcement
+      summary: What the policy gates of a pipeline decided (screen 06)
+      description: |
+        Only findings are stored, not every check that passed, so the counters report
+        evaluations (operations that went through a gate), not checks executed. `passRate`
+        is omitted when nothing was evaluated. Break-fix, out-of-process and drift panels
+        arrive with phase 2.
+      parameters:
+        - { name: pipeline, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: period,   in: query, schema: { type: string, enum: [7d, 30d, 90d], default: 7d } }
+      responses:
+        '200':
+          description: Gates per stage, counters and the most severe findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pipeline: { type: object, properties: { id: { type: string, format: uuid }, name: { type: string }, project: { type: string } } }
+                  kpis:
+                    type: object
+                    properties:
+                      evaluations: { type: integer }
+                      violations:  { type: integer, description: Findings with severity 2 or more. }
+                      blocked:     { type: integer }
+                      passRate:    { type: number, description: Percent of evaluations that passed. }
+                  gates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        stageId:     { type: string, format: uuid }
+                        env:         { type: string }
+                        envName:     { type: string }
+                        connection:  { type: string }
+                        production:  { type: boolean }
+                        result:      { $ref: '#/components/schemas/GateResult' }
+                        evaluatedAt: { type: string, format: date-time }
+                        operationId: { type: string, format: uuid }
+                        findings:    { type: integer }
+                        bySeverity:  { type: object, additionalProperties: { type: integer } }
+                  totalFindings: { type: integer }
+                  findings:
+                    type: array
+                    description: Up to 100, most severe first.
+                    items:
+                      type: object
+                      properties:
+                        severity:    { $ref: '#/components/schemas/Severity' }
+                        check:       { type: string }
+                        changeset:   { type: string }
+                        connection:  { type: string }
+                        env:         { type: string }
+                        result:      { $ref: '#/components/schemas/GateResult' }
+                        message:     { type: string }
+                        operationId: { type: string, format: uuid }
+                        at:          { type: string, format: date-time }
+                  breakFix:
+                    type: array
+                    description: Break-fix changesets applied to the pipeline databases in the period (up to 20).
+                    items:
+                      type: object
+                      properties:
+                        changeset:   { type: string }
+                        author:      { type: string }
+                        contexts:    { type: string }
+                        env:         { type: string }
+                        connection:  { type: string }
+                        at:          { type: string, format: date-time }
+                        operationId: { type: string, format: uuid }
+                  latestBlocked:
+                    type: object
+                    description: The newest finding that blocked a deploy; omitted when none did.
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: Unknown period }
+
+  /policy-checks:
+    get:
+      tags: [Policies]
+      operationId: listPolicyChecks
+      summary: The policy library (screen 07), read only
+      description: |
+        Editing, copying a builtin and the dry-run are phase 2 (E9). Each check says whether
+        the engine actually implements it: the catalogue lists 51 configurable checks and
+        phase 1 implements 33, so a screen that showed all of them as live would be promising
+        protection that does not exist.
+      parameters:
+        - { name: category, in: query, schema: { type: string } }
+        - { name: enabled,  in: query, schema: { type: boolean } }
+        - { name: kind,     in: query, schema: { type: string, enum: [BUILTIN, REGEX, SQL_PATTERN, SPEL, CHAINED] } }
+        - { name: q,        in: query, schema: { type: string }, description: Matches the code and the description. }
+      responses:
+        '200':
+          description: Checks, ordered by category then code
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PolicyCheck' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+    post:
+      tags: [Policies]
+      operationId: createPolicyCheck
+      summary: Create a check of the workspace (REGEX, SQL_PATTERN, SPEL or CHAINED)
+      description: "Validated on save: an invalid regex or an unknown chain member is a 422, never a silent no-op later."
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PolicyCheckDefinition' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyCheckDefinition' } } } }
+        '409': { description: The code already exists }
+        '422': { description: Invalid definition }
+
+  /policy-checks/summary:
+    get:
+      tags: [Policies]
+      operationId: getPolicyChecksSummary
+      summary: Counts shown on the library header
+      responses:
+        '200':
+          description: Counts. `prebuilt` leaves the four process checks out.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prebuilt:           { type: integer }
+                  prebuiltCategories: { type: integer }
+                  custom:             { type: integer }
+                  packages:           { type: integer }
+                  pipelines:          { type: integer }
+                  connections:        { type: integer }
+                  implemented:        { type: integer, description: Checks the engine really implements. }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /policy-checks/{id}:
+    get:
+      tags: [Policies]
+      operationId: getPolicyCheck
+      summary: One check, with its message template and parameters schema
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The check
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PolicyCheck'
+                  - type: object
+                    properties:
+                      changelogTypes:   { type: string, example: 'XML,SQL,YAML,JSON' }
+                      messageTemplate:  { type: string }
+                      parametersSchema: { type: string, description: "JSON Schema of the parameters, as text." }
+                      parameters:       { type: string, description: "Default parameters, as JSON text." }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    put:
+      tags: [Policies]
+      operationId: updatePolicyCheck
+      summary: Edit a check of the workspace
+      description: A builtin is refused with 409; copy it first. Every change is audited with before and after.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PolicyCheckDefinition' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyCheckDefinition' } } } }
+        '409': { description: A builtin cannot be changed }
+        '422': { description: Invalid definition }
+    delete:
+      tags: [Policies]
+      operationId: deletePolicyCheck
+      summary: Delete a check of the workspace
+      description: Refused with 409 for a builtin, a check that is in a package, or a member of a chain.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '409': { description: "Builtin, or still in use" }
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboard
+      summary: Operations Dashboard, delivery band (screen 01)
+      description: |
+        Computed live over the period. A rate with nothing to divide by (no deploys yet)
+        is absent, never zero: zero would claim "nothing failed" when the truth is "nothing
+        ran". Trends compare with the window of the same length right before.
+
+        The policy and drift bands are NOT in the response yet; they need `checks run`
+        results and drift runs, which arrive in phase 2 (E14/E16).
+      parameters:
+        - name: period
+          in: query
+          schema: { type: string, enum: ['7d', '30d', '90d'], default: '7d' }
+      responses:
+        '200':
+          description: Indicators
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+
+  /dashboard/activity:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardActivity
+      summary: Latest operations, as the dashboard table shows them
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 9 } }
+        - { name: project, in: query, schema: { type: string, format: uuid }, description: Only the operations of this project }
+      responses:
+        '200':
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityRow' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /notification-rules:
+    get:
+      tags: [Notifications]
+      operationId: listNotificationRules
+      summary: Notification rules
+      description: "Needs `workspace:admin`. A webhook target is returned as its host only; the URL is a credential."
+      responses:
+        '200': { description: Rules, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/NotificationRule' } } } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+    post:
+      tags: [Notifications]
+      operationId: createNotificationRule
+      summary: Create a rule
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/NotificationRuleBody' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationRule' } } } }
+        '422': { description: "Unknown event or channel, bad address, or a webhook that is not https" }
+
+  /notification-rules/{id}:
+    put:
+      tags: [Notifications]
+      operationId: updateNotificationRule
+      summary: Edit a rule; leaving `target` out keeps the stored one
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/NotificationRuleBody' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationRule' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    delete:
+      tags: [Notifications]
+      operationId: deleteNotificationRule
+      summary: Delete a rule and its queued messages
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+
+  /notification-rules/{id}/test:
+    post:
+      tags: [Notifications]
+      operationId: testNotificationRule
+      summary: Send a test message now
+      description: "Not queued: it goes out at once and the answer says whether it arrived, so a wrong URL shows up when it is typed."
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:    { type: boolean }
+                  error: { type: string, description: Never the endpoint's own words or its URL. }
+
+  /notification-deliveries:
+    get:
+      tags: [Notifications]
+      operationId: listNotificationDeliveries
+      summary: The latest 100 messages
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, SENT, FAILED] } }
+      responses:
+        '200':
+          description: Deliveries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:        { type: string, format: uuid }
+                    event:     { type: string }
+                    subject:   { type: string }
+                    status:    { type: string, enum: [PENDING, SENT, FAILED] }
+                    attempts:  { type: integer }
+                    error:     { type: string }
+                    rule:      { type: string }
+                    channel:   { type: string }
+                    createdAt: { type: string, format: date-time }
+                    sentAt:    { type: string, format: date-time }
+
+  /operations/{id}/rollback-requests:
+    post:
+      tags: [Rollback]
+      operationId: requestRollback
+      summary: Ask to go back to a changeset (or to a tag)
+      description: |
+        Send exactly one of `changeset` (the id of one the operation executed) or `tag`. Needs
+        `rollback:<environment>`. Going back to a changeset undoes it AND every changeset applied after it on the connection,
+        newest first, like Liquibase's `rollbackCount` (see `rollback-preview` for the list); a changeset in the middle is never
+        undone alone. If any of them has no rollback and no automatic inverse the answer is LQM-040, naming it. The list is
+        frozen in the request (`plan`), and the runner refuses to run if the database no longer agrees with it. In a
+        PRODUCTION environment the request is REQUESTED and waits for another person with `rollback:approve`
+        who is not the author of any changeset in the list; elsewhere it is APPROVED at once, by `auto`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                changeset: { type: string }
+                tag:       { type: string }
+                reason:    { type: string, minLength: 10 }
+      responses:
+        '201': { description: Requested, content: { application/json: { schema: { $ref: '#/components/schemas/RollbackRequest' } } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: "Invalid request, or LQM-040 (nothing to revert it with)" }
+
+  /operations/{id}/rollback-preview:
+    get:
+      tags: [Rollback]
+      operationId: previewRollback
+      summary: What going back to a changeset would undo
+      description: |
+        The changeset and every changeset applied after it on the operation's connection, newest first (the order they are undone
+        in). Changes nothing. `reversible` is false, and `blockers` names them, when some of them cannot be undone.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: changeset, in: query, required: true, schema: { type: string }, description: "Id of the changeset to go back to (the oldest one undone)." }
+      responses:
+        '200':
+          description: The list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:  { type: string }
+                  environment: { type: string }
+                  total:       { type: integer }
+                  reversible:  { type: boolean }
+                  blockers:    { type: array, items: { type: string } }
+                  items:       { type: array, items: { $ref: '#/components/schemas/RollbackItem' } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: "The operation has no such changeset, or it is not applied on the connection" }
+
+  /connections/{id}/applied-changesets:
+    get:
+      tags: [Rollback]
+      operationId: listAppliedChangesets
+      summary: What is applied on a connection, newest first
+      description: |
+        The list the project's Rollback tab shows. Each item carries the operation that last applied it, which is what
+        `rollback-preview` and the rollback request take as their anchor.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The applied changesets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:  { type: string }
+                  environment: { type: string }
+                  items:       { type: array, items: { $ref: '#/components/schemas/RollbackItem' } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{id}/changesets/in-review:
+    get:
+      tags: [Catalog]
+      operationId: listChangesetsInReview
+      summary: The changesets that only merge requests (or branches) have, grouped by merge request
+      description: |
+        What no report from the default branch has listed yet. They leave this list by themselves when the merge request is merged; when it
+        was closed or deleted a person closes the group (`close`). Closed groups are listed only with `closed=true`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: closed, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: The groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  openCount:   { type: integer }
+                  closedCount: { type: integer }
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mrIid:      { type: string, description: "Absent when the pipeline did not say which merge request; then `branch` names the group." }
+                        mrTitle:    { type: string }
+                        mrUrl:      { type: string }
+                        branch:     { type: string }
+                        lastSeenAt: { type: string, format: date-time }
+                        closed:     { type: boolean }
+                        closedAt:   { type: string, format: date-time }
+                        closedBy:   { type: string }
+                        closedNote: { type: string }
+                        changesets:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:          { type: string, format: uuid }
+                              changesetId: { type: string }
+                              author:      { type: string }
+                              filePath:    { type: string }
+                              changelog:   { type: string }
+                              release:     { type: string }
+                              hasRollback: { type: boolean }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/{id}/changesets/in-review/close:
+    post:
+      tags: [Catalog]
+      operationId: closeChangesetsInReview
+      summary: Close a group (the merge request was closed or deleted)
+      description: Needs `catalog:edit`. Marks the group's changesets (who, when, why) and deletes nothing; a new report from the branch undoes it.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              properties:
+                mrIid:  { type: [string, 'null'] }
+                branch: { type: [string, 'null'], description: "Used when there is no `mrIid`." }
+                note:   { type: string, minLength: 5 }
+      responses:
+        '200': { description: Closed, content: { application/json: { schema: { type: object, properties: { closed: { type: integer } } } } } }
+        '422': { description: "No note, or nothing open in that group" }
+
+  /projects/{id}/changesets/in-review/reopen:
+    post:
+      tags: [Catalog]
+      operationId: reopenChangesetsInReview
+      summary: Undo a close
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mrIid:  { type: [string, 'null'] }
+                branch: { type: [string, 'null'] }
+      responses:
+        '200': { description: Reopened, content: { application/json: { schema: { type: object, properties: { reopened: { type: integer } } } } } }
+        '422': { description: "Nothing closed in that group" }
+
+  /integrations/gitlab/webhook:
+    post:
+      tags: [Ingestion]
+      operationId: gitlabWebhook
+      summary: GitLab's merge request events (a merge request closed or reopened)
+      description: |
+        Registered ONCE for the whole workspace in GitLab (a group webhook, or a system hook on a self-managed instance), not per project: the payload
+        names the project (`project.path_with_namespace`) and LiquiManager finds its own by the repository path. Authenticated by a service token with the
+        `webhook` scope, sent in the `X-Gitlab-Token` header (GitLab's "Secret token").
+
+        `close` closes the merge request's group in the project's "In review" tab, `reopen` reopens it. Anything else, an unknown project included,
+        answers 200 with `handled: false`, so GitLab does not disable the webhook. GitLab sends nothing when a merge request is deleted.
+      security:
+        - serviceToken: [webhook]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: GitLab's merge request event (only the fields below are read).
+              properties:
+                object_kind: { type: string, example: merge_request }
+                user:        { type: object, properties: { username: { type: string } } }
+                project:     { type: object, properties: { path_with_namespace: { type: string, example: grupo/projeto } } }
+                object_attributes:
+                  type: object
+                  properties:
+                    iid:    { type: integer }
+                    action: { type: string, example: close }
+      responses:
+        '200':
+          description: Received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handled:     { type: boolean }
+                  action:      { type: string }
+                  mergeRequest: { type: string }
+                  changesets:  { type: integer, description: "How many changesets were closed or reopened." }
+                  reason:      { type: string }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /access-requests:
+    post:
+      tags: [Access]
+      operationId: askAccess
+      summary: The signed-in person asks for access
+      description: |
+        For somebody who signed in and holds no permission. Needs only a signed-in caller. One open request per person: asking again within a day
+        answers 200 with the open one (`already: true`); after a day it renews it. It grants nothing: whoever administers access sees it in the bell
+        (pending kind `ACCESS`) and on the access screen, and chooses the role and the scope. It closes by itself when the person, or one of their
+        groups, gets any binding.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message: { type: string, maxLength: 500, description: "Optional note for the administrator." }
+      responses:
+        '201': { description: Opened or renewed, content: { application/json: { schema: { $ref: '#/components/schemas/AccessRequest' } } } }
+        '200': { description: "Too soon to ask again: the open one", content: { application/json: { schema: { $ref: '#/components/schemas/AccessRequest' } } } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '422': { description: "No identity to ask for (the development chain without X-LQM-User), or a message that is too long" }
+    get:
+      tags: [Access]
+      operationId: listAccessRequests
+      summary: The open requests, oldest first (needs assignment:admin)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [OPEN, GRANTED, DISMISSED], default: OPEN } }
+      responses:
+        '200': { description: Requests, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AccessRequest' } } } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /access-requests/mine:
+    get:
+      tags: [Access]
+      operationId: myAccessRequest
+      summary: The caller's own open request, or an empty object
+      responses:
+        '200': { description: "The request, or an empty object", content: { application/json: { schema: { $ref: '#/components/schemas/AccessRequest' } } } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /access-requests/{id}/dismiss:
+    post:
+      tags: [Access]
+      operationId: dismissAccessRequest
+      summary: Set a request aside without granting (needs assignment:admin)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string }
+      responses:
+        '200': { description: Dismissed, content: { application/json: { schema: { $ref: '#/components/schemas/AccessRequest' } } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '409': { description: "Not OPEN anymore" }
+
+  /rollback-requests:
+    get:
+      tags: [Rollback]
+      operationId: listRollbackRequests
+      summary: Rollback requests, newest first (up to 100)
+      parameters:
+        - { name: status,    in: query, schema: { type: string, enum: [REQUESTED, APPROVED, REJECTED, CANCELED, RUNNING, DONE, FAILED] } }
+        - { name: operation, in: query, schema: { type: string, format: uuid } }
+        - { name: connection, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Requests, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RollbackRequest' } } } } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /rollback-requests/{id}:
+    get:
+      tags: [Rollback]
+      operationId: getRollbackRequest
+      summary: One rollback request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: The request, content: { application/json: { schema: { $ref: '#/components/schemas/RollbackRequest' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /rollback-requests/{id}/approve:
+    post:
+      tags: [Rollback]
+      operationId: approveRollback
+      summary: Approve a requested rollback
+      description: LQM-010 when the approver is the requester (SoD-2) or the author of the changeset (SoD-1). Needs `rollback:approve`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Approved, content: { application/json: { schema: { $ref: '#/components/schemas/RollbackRequest' } } } }
+        '409': { description: "LQM-010, or not in the REQUESTED state" }
+
+  /rollback-requests/{id}/reject:
+    post:
+      tags: [Rollback]
+      operationId: rejectRollback
+      summary: Reject a requested rollback
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Rejected, content: { application/json: { schema: { $ref: '#/components/schemas/RollbackRequest' } } } }
+        '409': { description: Not in the REQUESTED state }
+
+  /rollback-requests/{id}/cancel:
+    post:
+      tags: [Rollback]
+      operationId: cancelRollback
+      summary: Withdraw a request that no runner has taken
+      description: Only the person who asked can.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Canceled, content: { application/json: { schema: { $ref: '#/components/schemas/RollbackRequest' } } } }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '409': { description: "Already taken by a runner, or decided" }
+
+  /runner/claim:
+    post:
+      tags: [Rollback]
+      operationId: claimRollback
+      summary: A runner takes the oldest approved rollback
+      description: |
+        Service token with the `runner` scope. The request becomes RUNNING and is the caller's alone. The answer says where
+        the changelog is (path and git commit of the original operation) and which database, and never a credential.
+        A request still RUNNING after 30 minutes is failed by a job.
+      security:
+        - serviceToken: []
+      responses:
+        '200': { description: A job, content: { application/json: { schema: { $ref: '#/components/schemas/RunnerJob' } } } }
+        '204': { description: Nothing approved }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /runner/requests/{id}/complete:
+    post:
+      tags: [Rollback]
+      operationId: completeRollback
+      summary: A runner says how the rollback went
+      security:
+        - serviceToken: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ok]
+              properties:
+                ok:                { type: boolean }
+                resultOperationId: { type: string, format: uuid, description: The operation the runner reported; it answers the original one. }
+                error:             { type: string }
+      responses:
+        '200': { description: Recorded }
+        '403': { description: Another runner claimed it }
+        '409': { description: Not RUNNING }
+
+  /drift/summary:
+    get:
+      tags: [Drift]
+      operationId: getDriftSummary
+      summary: Drift indicators, the weekly series and what diverged
+      description: |
+        Drift rate is runs with drift over successful runs, and is omitted (not 0%) when nothing was
+        checked. Items accepted by someone are not counted. `diverged` is the chosen connection, or the one
+        with the most items.
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [7d, 30d, 90d, all], default: 30d } }
+        - { name: connection, in: query, schema: { type: string }, description: Connection slug. }
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DriftSummary' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '422': { description: Unknown period }
+
+  /drift/runs:
+    get:
+      tags: [Drift]
+      operationId: listDriftRuns
+      summary: Drift runs, newest first
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [7d, 30d, 90d, all], default: 30d } }
+        - { name: filter, in: query, schema: { type: string, enum: [all, drift, clean], default: all } }
+        - { name: connection, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/size' }
+      responses:
+        '200':
+          description: A page of runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content: { type: array, items: { $ref: '#/components/schemas/DriftRun' } }
+                  page: { type: integer }
+                  size: { type: integer }
+                  totalElements: { type: integer, format: int64 }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /drift/runs/{id}:
+    get:
+      tags: [Drift]
+      operationId: getDriftRun
+      summary: One run with its items
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: The run, content: { application/json: { schema: { $ref: '#/components/schemas/DriftRunDetail' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /drift/runs/{id}/changelog:
+    post:
+      tags: [Drift]
+      operationId: generateDriftChangelog
+      summary: The Liquibase changelog (XML) that adopts the drift
+      description: |
+        Applying it to a database in the clean (reference) state brings it to the drifted one, so the
+        drift can become a changeset. Needs `drift:run`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: XML changelog, content: { application/xml: { schema: { type: string } } } }
+        '422': { description: The run has no snapshot to generate from }
+
+  /drift/items/{id}/accept:
+    post:
+      tags: [Drift]
+      operationId: acceptDriftItem
+      summary: Accept an item, with a justification
+      description: |
+        The item stops counting and is carried over to later runs while the object stays exactly as it is;
+        if it changes again it comes back. Needs `drift:accept` and is audited.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 10 }
+      responses:
+        '200': { description: Accepted }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { description: Justification too short }
+
+  /connections/{id}/drift-runs:
+    post:
+      tags: [Drift]
+      operationId: runDrift
+      summary: Run drift on a connection now
+      description: |
+        The first run only takes the reference. A database that cannot be reached is a FAILED run with the
+        reason, not an error response. Needs `drift:run`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: The run, content: { application/json: { schema: { $ref: '#/components/schemas/DriftRunDetail' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /connections/{id}/drift-reference:
+    post:
+      tags: [Drift]
+      operationId: rebaselineDrift
+      summary: Take the current state as the clean one
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Reference taken }
+
+  /connections/{id}/scanner:
+    get:
+      tags: [Drift]
+      operationId: getScannerStatus
+      summary: How the last scanner pass over a connection went
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:         { type: boolean }
+                  intervalMinutes: { type: integer }
+                  lastRunAt:       { type: string, format: date-time }
+                  lastOk:          { type: boolean }
+                  lastError:       { type: string }
+                  lastSeen:        { type: string, format: date-time, description: The newest DATEEXECUTED the scanner has read. }
+                  stuckLockSince:  { type: string, format: date-time, description: Present when DATABASECHANGELOGLOCK has been held for over 15 minutes. }
+
+  /connections/{id}/scan:
+    post:
+      tags: [Drift]
+      operationId: scanNow
+      summary: Scan a connection now
+      description: |
+        Reads DATABASECHANGELOG and reports deployments no known operation accounts for as `observed`
+        operations from the scanner, with an OutOfProcessChange finding. The first pass imports the history
+        without the finding. Needs `drift:run`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: What the pass found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:             { type: boolean }
+                  deployments:    { type: integer }
+                  outOfProcess:   { type: integer }
+                  firstPass:      { type: boolean }
+                  stuckLockSince: { type: string, format: date-time }
+                  error:          { type: string }
+
+  /secrets/status:
+    get:
+      tags: [Access]
+      operationId: getSecretsStatus
+      summary: Which connections have credentials, from where, and how old they are
+      description: Never returns a value, nor the reference into the vault. Needs `secret:view-status`.
+      responses:
+        '200':
+          description: Panel data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:          { type: string, format: uuid }
+                        connection:  { type: string }
+                        environment: { type: string }
+                        provider:    { type: string, enum: [ENV, VAULT, CONSUL, AZURE_KV] }
+                        rotatedAt:   { type: string, format: date-time }
+                        ageDays:     { type: integer, description: "Omitted when never rotated, which is the worst case." }
+                        level:       { type: string, enum: [ok, warning, danger] }
+                  secretsInChangelogs: { type: integer, description: Distinct changesets flagged by SecretInChangelog. }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /secrets/{connection}/rotated:
+    post:
+      tags: [Access]
+      operationId: recordSecretRotation
+      summary: Tell LiquiManager the secret of a connection was rotated
+      description: The rotation happens in the vault. This stamps the date, drops cached credentials and is audited.
+      parameters:
+        - { name: connection, in: path, required: true, schema: { type: string }, description: Connection slug. }
+      responses:
+        '200': { description: Recorded }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /audit:
+    get:
+      tags: [Access]
+      operationId: listAudit
+      summary: The audit trail, newest first
+      parameters:
+        - { name: from,   in: query, schema: { type: string, format: date-time } }
+        - { name: to,     in: query, schema: { type: string, format: date-time } }
+        - { name: actor,  in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string }, description: "Exact, or with * as a wildcard (policy.*)." }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/size' }
+      responses:
+        '200':
+          description: A page of events, with before and after as JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        seq:        { type: integer, format: int64 }
+                        id:         { type: string, format: uuid }
+                        at:         { type: string, format: date-time }
+                        actor:      { type: string }
+                        actorType:  { type: string }
+                        action:     { type: string, example: policy.update }
+                        targetType: { type: string }
+                        targetId:   { type: string }
+                        before:     { type: object }
+                        after:      { type: object }
+                        hash:       { type: string }
+                  page:          { type: integer }
+                  size:          { type: integer }
+                  totalElements: { type: integer, format: int64 }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /audit/verify:
+    get:
+      tags: [Access]
+      operationId: verifyAudit
+      summary: Re-compute every hash of the chain
+      description: The chain is one for the whole table, so this is global. O(n); the daily job does the same.
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intact:   { type: boolean }
+                  checked:  { type: integer, format: int64 }
+                  brokenAt: { type: integer, format: int64, description: First seq that does not verify. }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /audit/export:
+    get:
+      tags: [Access]
+      operationId: exportAudit
+      summary: Export the trail as CSV or PDF
+      description: |
+        Needs `audit:export`. The PDF carries the events, the verdict on the hash chain and the hash of the last event; it is
+        not a certificate-based digital signature. In both formats the response carries `X-LQM-Export-Sha256`, and an
+        `audit.export` event with the same hash of the delivered bytes is written to the trail.
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [csv, pdf], default: csv } }
+        - { name: from,   in: query, schema: { type: string, format: date-time } }
+        - { name: to,     in: query, schema: { type: string, format: date-time } }
+        - { name: actor,  in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: CSV or PDF file
+          headers:
+            X-LQM-Export-Sha256: { schema: { type: string } }
+          content:
+            text/csv: { schema: { type: string } }
+            application/pdf: { schema: { type: string, format: binary } }
+        '422': { description: Unsupported format }
+
+  /role-templates:
+    get:
+      tags: [Access]
+      operationId: listRoleTemplates
+      summary: The role templates and what each grants (docs/09 § 3)
+      responses:
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '200': { description: Templates, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RoleTemplate' } } } } }
+
+  /principals:
+    get:
+      tags: [Access]
+      operationId: listPrincipals
+      summary: Users and groups
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: "Matches the name, the external id and the e-mail." }
+      responses:
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '200': { description: Up to 100 principals, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Principal' } } } } }
+    post:
+      tags: [Access]
+      operationId: createPrincipal
+      summary: Register a user or group by hand
+      description: Until the identity-provider sync exists (D-03). A principal belongs to the identity provider, not to a workspace.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, externalId, displayName]
+              properties:
+                type:        { type: string, enum: [USER, GROUP] }
+                externalId:  { type: string, description: "Username or subject; for a group, its name in the token claim." }
+                displayName: { type: string }
+                email:       { type: string }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Principal' } } } }
+        '409': { description: Already registered }
+
+  /access/bindings:
+    get:
+      tags: [Access]
+      operationId: listBindings
+      summary: Access by role, with the counters of the screen
+      parameters:
+        - { name: scopeType, in: query, schema: { type: string, enum: [WORKSPACE, PROJECT, CONNECTION, PIPELINE, ENVIRONMENT] } }
+        - { name: scopeId,   in: query, schema: { type: string, format: uuid } }
+      responses:
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '200':
+          description: Bindings and counters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bindings: { type: array, items: { $ref: '#/components/schemas/Binding' } }
+                  summary:
+                    type: object
+                    properties:
+                      groups:         { type: integer }
+                      members:        { type: integer }
+                      openExceptions: { type: integer }
+                      auditEvents:    { type: integer, description: In the last 24 hours. }
+    post:
+      tags: [Access]
+      operationId: grantAccess
+      summary: Grant a role template and/or permissions in a scope
+      description: |
+        Separation of duties is checked here, not on the screen:
+        SoD-3 refuses a binding that would deploy to production AND approve exceptions (LQM-010);
+        SoD-4 requires an approver and an expiry of at most 90 days for a production scope
+        (24 hours for BREAKGLASS). The grant is audited with before and after (SoD-5).
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/BindingBody' } } }
+      responses:
+        '201': { description: Granted, content: { application/json: { schema: { $ref: '#/components/schemas/Binding' } } } }
+        '409': { description: LQM-010 separation of duties }
+        '422': { description: Invalid binding }
+
+  /access/bindings/{id}:
+    delete:
+      tags: [Access]
+      operationId: revokeAccess
+      summary: Revoke a binding
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Revoked }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /auth/break-glass:
+    post:
+      tags: [Session]
+      operationId: signInBreakGlass
+      summary: Sign in with the local emergency account
+      description: |
+        For when the identity provider is down. Only when `lqm.security.break-glass.enabled` is true (otherwise 404, as if it did not
+        exist). Needs the account name, its password and a TOTP code, all three at once; a code works once. Every refusal is the same
+        401 (`LQM-080`, it does not say which was wrong); five wrong attempts in a row lock the account for 15 minutes (429,
+        `LQM-081`). The token is used as `Authorization: Bearer` and holds every permission until it expires (at most 24 h) or is
+        revoked. Every sign-in, refusal and request made with it is audited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, code]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: The session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, description: 'Shown once; kept only as a hash. Starts with lqm_bg_.' }
+                  expiresAt: { type: string, format: date-time }
+        '401': { description: Credentials not accepted (LQM-080) }
+        '404': { description: The emergency account is not enabled }
+        '429': { description: Locked after too many attempts (LQM-081) }
+
+  /auth/break-glass/logout:
+    post:
+      tags: [Session]
+      operationId: signOutBreakGlass
+      summary: Revoke the emergency session in use
+      security:
+        - breakGlass: []
+      responses:
+        '204': { description: Revoked }
+        '404': { description: Not a break-glass session }
+
+  /me:
+    get:
+      tags: [Session]
+      operationId: getMe
+      summary: Authenticated user, effective permissions and workspaces
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /me/pending:
+    get:
+      tags: [Session]
+      operationId: getMyPending
+      summary: What waits for the caller to decide
+      description: |
+        Promotions, rollback requests and policy exceptions in `REQUESTED` that the caller could approve: asked by somebody else
+        (SoD-2), not about a changeset the caller wrote (SoD-1), and with the permission in scope (`promote:<env>`,
+        `rollback:approve`, `exception:approve`). The topbar bell of every screen polls it. Deciding is done on the approve endpoints.
+      responses:
+        '200':
+          description: The pending items, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind: { type: string, enum: [PROMOTION, ROLLBACK, EXCEPTION, ACCESS], description: "ACCESS: somebody asked for access (only for whoever has assignment:admin)." }
+                        id: { type: string, format: uuid }
+                        requestedBy: { type: string }
+                        at: { type: string, format: date-time }
+                        environment: { type: string }
+                        release: { type: string }
+                        pipelineId: { type: string, format: uuid }
+                        pipeline: { type: string }
+                        changeset: { type: string }
+                        operationId: { type: string, format: uuid }
+                        check: { type: string }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /teams:
+    get:
+      tags: [Catalogue]
+      operationId: listTeams
+      summary: Teams of the workspace
+      responses:
+        '200': { description: Teams, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Team' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createTeam
+      summary: Creates a team (audited as team.create)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TeamRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Team' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /teams/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    put:
+      tags: [Catalogue]
+      operationId: renameTeam
+      summary: Renames a team (audited as team.update)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TeamRequest' } } } }
+      responses:
+        '200': { description: Renamed, content: { application/json: { schema: { $ref: '#/components/schemas/Team' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    delete:
+      tags: [Catalogue]
+      operationId: deleteTeam
+      summary: Deletes a team (audited as team.delete)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /projects/overview:
+    get:
+      tags: [Catalog]
+      operationId: getProjectsOverview
+      summary: The projects with what the list screen shows, and its KPIs
+      description: |
+        One call for `/projects`: per project, `changelogs`, `connections` (linked, or where it has run), `collector` (the source of its
+        last report: starter, pipeline or cli) and its last operation; and `kpis` (projects, changelogs, withCollector, underPolicy).
+        Only the projects the caller may read.
+      responses:
+        '200':
+          description: The overview
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+
+  /projects:
+    get:
+      tags: [Catalogue]
+      operationId: listProjects
+      summary: Projects of the workspace, archived ones left out
+      parameters: [{ name: q, in: query, schema: { type: string }, description: Matches the slug or the name }]
+      responses:
+        '200': { description: Projects, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Project' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createProject
+      summary: Creates a project (audited as project.create)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /projects/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [Catalogue]
+      operationId: getProject
+      summary: One project
+      responses:
+        '200': { description: Project, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    put:
+      tags: [Catalogue]
+      operationId: updateProject
+      summary: Updates a project (audited as project.update)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectRequest' } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    delete:
+      tags: [Catalogue]
+      operationId: archiveProject
+      summary: Archives a project; its history stays (audited as project.archive)
+      responses:
+        '204': { description: Archived }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+  /projects/{id}/summary:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [Catalogue]
+      operationId: getProjectSummary
+      summary: The numbers on the project page, over the last 30 days of its operations
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  finished:    { type: integer, format: int64, description: 'Operations that ended in SUCCESS, FAILURE or BLOCKED.' }
+                  succeeded:   { type: integer, format: int64 }
+                  failed:      { type: integer, format: int64 }
+                  blocked:     { type: integer, format: int64 }
+                  lastAt:      { type: string, format: date-time, description: Start of the latest operation; absent with none. }
+                  successRate: { type: number, description: 'Percent with one decimal; absent when nothing finished.' }
+                  connections: { type: integer, format: int64 }
+                  changelogs:  { type: integer, format: int64 }
+                  pipelines:   { type: integer, format: int64 }
+                  openDrift:   { type: integer, format: int64, description: Linked connections whose latest drift run has differences nobody accepted. }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+  /projects/{id}/connections:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [Catalogue]
+      operationId: listProjectConnections
+      summary: The connections the project applies to, in pipeline order
+      responses:
+        '200':
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, format: uuid }
+                    slug: { type: string }
+                    displayName: { type: string }
+                    engine: { type: string }
+                    environmentCode: { type: string }
+                    environmentOrder: { type: integer }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    put:
+      tags: [Catalogue]
+      operationId: linkProjectConnections
+      summary: Replaces the set of connections of the project (audited as project.connections)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [connectionIds]
+              properties:
+                connectionIds: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '200': { description: The connections now linked }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /projects/{projectId}/changelogs:
+    parameters: [{ name: projectId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [Catalogue]
+      operationId: listChangelogs
+      summary: Changelogs of a project
+      responses:
+        '200': { description: Changelogs, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Changelog' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createChangelog
+      summary: Registers a changelog (audited as changelog.create)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ChangelogRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Changelog' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /environments:
+    get:
+      tags: [Catalogue]
+      operationId: listEnvironments
+      summary: Environments in pipeline order
+      responses:
+        '200': { description: Environments, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Environment' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createEnvironment
+      summary: Creates an environment (audited as environment.create)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EnvironmentRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Environment' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /environments/order:
+    put:
+      tags: [Catalogue]
+      operationId: reorderEnvironments
+      summary: Sets the pipeline order of every environment at once (audited as environment.reorder)
+      description: '`ids` has to list every environment of the workspace exactly once, first to last.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '200': { description: Environments in the new order, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Environment' } } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /environments/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    put:
+      tags: [Catalogue]
+      operationId: updateEnvironment
+      summary: Updates an environment (audited as environment.update)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EnvironmentRequest' } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Environment' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /connections:
+    get:
+      tags: [Catalogue]
+      operationId: listConnections
+      summary: Database connections, archived ones left out
+      responses:
+        '200': { description: Connections, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Connection' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createConnection
+      summary: Creates a connection (audited as connection.create)
+      description: The JDBC URL carries no user or password; a URL that does is refused. Only the reference to the secret is stored (RNF-06).
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConnectionRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Connection' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /connections/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [Catalogue]
+      operationId: getConnection
+      summary: One connection
+      responses:
+        '200': { description: Connection, content: { application/json: { schema: { $ref: '#/components/schemas/Connection' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    put:
+      tags: [Catalogue]
+      operationId: updateConnection
+      summary: Updates a connection; saving it marks it verified (audited as connection.update)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConnectionRequest' } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Connection' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    delete:
+      tags: [Catalogue]
+      operationId: archiveConnection
+      summary: Archives a connection (audited as connection.archive)
+      responses:
+        '204': { description: Archived }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+  /connections/{id}/test:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [Catalogue]
+      operationId: testConnection
+      summary: Resolves the secret, opens the connection and reports the database version
+      description: A failure to connect is a normal result (200 with ok=false), not an HTTP error. The audit event keeps only the outcome and latency, never the driver message.
+      responses:
+        '200': { description: Result, content: { application/json: { schema: { $ref: '#/components/schemas/ConnectionTest' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /pipelines:
+    get:
+      tags: [Catalogue]
+      operationId: listPipelines
+      summary: Pipelines of the workspace
+      responses:
+        '200': { description: Pipelines, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Pipeline' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createPipeline
+      summary: Creates a pipeline (audited as pipeline.create)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PipelineRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Pipeline' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /pipelines/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [Catalogue]
+      operationId: getPipeline
+      summary: One pipeline
+      responses:
+        '200': { description: Pipeline, content: { application/json: { schema: { $ref: '#/components/schemas/Pipeline' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    put:
+      tags: [Catalogue]
+      operationId: updatePipeline
+      summary: Updates a pipeline (audited as pipeline.update)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PipelineRequest' } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Pipeline' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    delete:
+      tags: [Catalogue]
+      operationId: deletePipeline
+      summary: Deletes a pipeline and its stages (audited as pipeline.delete)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+  /pipelines/{id}/stages:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [Catalogue]
+      operationId: listStages
+      summary: Stages of a pipeline, in order
+      responses:
+        '200': { description: Stages, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Stage' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createStage
+      summary: Adds a stage (audited as pipeline-stage.create)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/StageRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Stage' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /pipelines/{id}/stages/{stageId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: stageId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Catalogue]
+      operationId: updateStage
+      summary: Updates a stage (audited as pipeline-stage.update)
+      description: '`policyPackageId` is written as sent, so an edit must send the package the stage already has.'
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/StageRequest' } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Stage' } } } }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    delete:
+      tags: [Catalogue]
+      operationId: deleteStage
+      summary: Removes a stage (audited as pipeline-stage.delete)
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /service-tokens:
+    get:
+      tags: [Catalogue]
+      operationId: listServiceTokens
+      summary: Service tokens of the workspace, never with their value
+      responses:
+        '200': { description: Tokens, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ServiceToken' } } } } }
+    post:
+      tags: [Catalogue]
+      operationId: createServiceToken
+      summary: Issues a service token (audited as token.create, without the value)
+      description: The value is in this response and nowhere else; it is stored only as a hash.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTokenRequest' } } } }
+      responses:
+        '201': { description: Issued, content: { application/json: { schema: { $ref: '#/components/schemas/IssuedServiceToken' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+  /service-tokens/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    delete:
+      tags: [Catalogue]
+      operationId: revokeServiceToken
+      summary: Revokes a service token (audited as token.revoke)
+      responses:
+        '204': { description: Revoked }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /workspaces:
+    get:
+      tags: [Session]
+      operationId: listWorkspaces
+      summary: Workspaces
+      responses:
+        '200': { description: Workspaces, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Workspace' } } } } }
+  /workspaces/{id}/settings:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    put:
+      tags: [Session]
+      operationId: updateWorkspaceSettings
+      summary: Retention and deadlines of the workspace (audited as workspace.settings)
+      description: |
+        Needs `workspace:admin`. Operations and the audit trail are not here: they are kept for the legal period (D-08).
+        `jobRunRetentionDays` is the history of the installation's own jobs, so the longest value among workspaces wins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jobRunRetentionDays, notificationRetentionDays, promotionTtlHours]
+              properties:
+                jobRunRetentionDays:       { type: integer, minimum: 7, maximum: 3650 }
+                notificationRetentionDays: { type: integer, minimum: 7, maximum: 3650, description: Sent notifications; pending ones are never removed. }
+                promotionTtlHours:         { type: integer, minimum: 0, maximum: 8760, description: A request not decided in this time expires; 0 turns it off. }
+      responses:
+        '200': { description: Workspace, content: { application/json: { schema: { $ref: '#/components/schemas/Workspace' } } } }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+
+components:
+
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://sso.exemplo.interno/realms/liquimanager/.well-known/openid-configuration
+    breakGlass:
+      type: http
+      scheme: bearer
+      description: Session of the local emergency account, `lqm_bg_...` (docs/09 § 8.4).
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: Service token `lqm_<prefix8>_<secret32>`, stored with Argon2id (RNF-08).
+
+  parameters:
+    page: { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+    size: { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 25 } }
+    sort:
+      name: sort
+      in: query
+      schema: { type: string, default: 'startedAt,desc' }
+      example: 'startedAt,desc'
+    operationId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    NaoAutenticado:
+      description: Missing or invalid token
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    SemPermissao:
+      description: Missing permission or scope
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NaoEncontrado:
+      description: Resource does not exist
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: 'about:blank'
+            title: 'Resource not found'
+            status: 404
+            code: LQM-001
+    PayloadInvalido:
+      description: Invalid payload
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+
+    Problem:
+      type: object
+      description: RFC 9457. `code` is the LiquiManager business error code.
+      properties:
+        type:   { type: string, format: uri }
+        title:  { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code:
+          type: string
+          enum: [LQM-001, LQM-010, LQM-020, LQM-030, LQM-040, LQM-050, LQM-060, LQM-403, LQM-409, LQM-422]
+          description: |
+            LQM-001 resource not found · LQM-010 separation-of-duties violation ·
+            LQM-020 gate blocked · LQM-030 exception expired ·
+            LQM-040 changeset without rollback · LQM-050 secret unreachable ·
+            LQM-060 AI disabled (future feature, D-13) ·
+            LQM-403 forbidden for this token or user · LQM-409 conflict with existing data ·
+            LQM-422 invalid payload.
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:   { type: string }
+              message: { type: string }
+      required: [title, status]
+
+    Page:
+      type: object
+      properties:
+        page:          { type: integer }
+        size:          { type: integer }
+        totalElements: { type: integer, format: int64 }
+      required: [page, size, totalElements]
+
+    Command:
+      type: string
+      enum:
+        - update
+        - update-sql
+        - rollback
+        - rollback-one-changeset
+        - rollback-to-changeset
+        - tag
+        - status
+        - diff
+        - diff-changelog
+        - validate
+        - checks run
+        - flow
+        - observed
+
+    OperationStatus:
+      type: string
+      enum: [SUCCESS, FAILURE, BLOCKED, RUNNING, CANCELED]
+
+    OperationType:
+      type: string
+      enum: [database-change, policy-checks, drift, read-only]
+
+    OperationSource:
+      type: string
+      enum: [pipeline, startup, cli-local, scheduler, ui, scanner]
+
+    ChangesetOutcome:
+      type: string
+      enum: [EXECUTED, PREVIOUSLY_RUN, FILTERED, FAILED, NOT_EXECUTED, ROLLED_BACK]
+
+    GateResult:
+      type: string
+      enum: [PASSED, WARNED, BLOCKED]
+
+    Severity:
+      type: integer
+      minimum: 0
+      maximum: 4
+      description: 0 INFO · 1 MINOR · 2 MAJOR · 3 CRITICAL · 4 BLOCKER
+
+    IngestOperation:
+      type: object
+      required: [operationId, command, status, source, executedBy, startedAt, connection]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+          description: Generated by the collector. This is the idempotency key.
+        command: { $ref: '#/components/schemas/Command' }
+        status:  { $ref: '#/components/schemas/OperationStatus' }
+        source:  { $ref: '#/components/schemas/OperationSource' }
+        executedBy: { type: string }
+        startedAt:  { type: string, format: date-time }
+        endedAt:    { type: string, format: date-time }
+        project:     { type: string, example: gate }
+        environment: { type: string, example: PRD }
+        deploymentId: { type: string }
+        contexts: { type: string, example: prd }
+        labels:   { type: string, example: release-2.1.0 }
+        tag:      { type: ['string', 'null'] }
+        connection:
+          type: object
+          required: [jdbcUrl, engine]
+          properties:
+            key:     { type: string, example: core-prd }
+            jdbcUrl: { type: string, description: 'WITHOUT username or password (RNF-06)' }
+            engine:  { type: string, enum: [SQLSERVER, POSTGRESQL, ORACLE, MYSQL] }
+            dbVersion: { type: string }
+        changelog:
+          type: object
+          properties:
+            path:   { type: string }
+            format: { type: string, enum: [XML, YAML, JSON, SQL] }
+            complete:
+              type: boolean
+              description: |
+                True when `changesets` lists EVERY changeset of the changelog at this commit (the collector classified it before the
+                command ran). On a report from the project's default branch that is a photo of the changelog: what the platform knows and
+                the photo lacks is marked removed (`removedAt`), and what comes back is unmarked. Ignored from any other branch, from a
+                rollback and from a report older than the last one used. Absent from older collectors, which then change nothing.
+        git:
+          type: object
+          properties:
+            commit: { type: string }
+            branch: { type: string }
+        ci:
+          type: object
+          properties:
+            provider:   { type: string, example: gitlab }
+            pipelineId: { type: string }
+            jobUrl:     { type: string, format: uri }
+            mergeRequestIid:   { type: string, description: 'The merge request the pipeline runs for, when it runs for one (GitLab: CI_MERGE_REQUEST_IID).' }
+            mergeRequestTitle: { type: string }
+            mergeRequestUrl:   { type: string, format: uri }
+        runtime:
+          type: object
+          properties:
+            liquibaseVersion: { type: string, example: 5.0.4 }
+            collector:        { type: string, example: lqm-cli }
+            collectorVersion: { type: string }
+            host:             { type: string }
+            javaVersion:      { type: string }
+        summary:
+          type: object
+          properties:
+            executed:       { type: integer }
+            previouslyRun:  { type: integer }
+            filtered:       { type: integer }
+            failed:         { type: integer }
+        changesets:
+          type: array
+          items: { $ref: '#/components/schemas/IngestChangeset' }
+        policy:
+          type: object
+          properties:
+            gateResult: { $ref: '#/components/schemas/GateResult' }
+            findings:
+              type: array
+              items: { $ref: '#/components/schemas/IngestFinding' }
+        error:
+          type: object
+          properties:
+            message:  { type: string }
+            exitCode: { type: integer }
+        log:
+          type: string
+          description: Up to 2 MB, truncated. Beyond that it goes to object storage.
+        sql:
+          type: string
+
+    IngestChangeset:
+      type: object
+      required: [id, author, filePath, outcome]
+      properties:
+        id:       { type: string, example: SUP-3512-002 }
+        author:   { type: string }
+        filePath: { type: string }
+        checksum: { type: string }
+        labels:   { type: string }
+        contexts: { type: string }
+        hasRollback: { type: boolean }
+        outcome:  { $ref: '#/components/schemas/ChangesetOutcome' }
+        filterReason: { type: string, enum: [context, label, dbms, ignore] }
+        order:      { type: integer }
+        startedAt:  { type: string, format: date-time }
+        durationMs: { type: integer, format: int64 }
+        error:      { type: string }
+
+    IngestFinding:
+      type: object
+      required: [check, severity, result]
+      properties:
+        check:     { type: string, example: RollbackRequired }
+        severity:  { $ref: '#/components/schemas/Severity' }
+        result:    { $ref: '#/components/schemas/GateResult' }
+        changeset: { type: string }
+        message:   { type: string }
+
+    IngestAccepted:
+      type: object
+      properties:
+        operationId: { type: string, format: uuid }
+        url:         { type: string, format: uri }
+
+    ChangelogDeveloperView:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        name:             { type: string }
+        path:             { type: string, description: "The master changelog, relative to the repository." }
+        format:           { type: string }
+        project:          { type: object, properties: { id: { type: string, format: uuid }, slug: { type: string }, name: { type: string } } }
+        branch:           { type: string }
+        sourceConfigured: { type: boolean, description: "True when the project has a repository URL and GitLab is configured." }
+        kpis:
+          type: object
+          properties:
+            changesets:   { type: integer }
+            withRollback: { type: integer }
+            release:      { type: string, description: The highest release label among the changesets. }
+            lastFlow:
+              type: object
+              description: Absent when no flow ran for this changelog.
+              properties:
+                operationId: { type: string, format: uuid }
+                status:      { type: string }
+                durationMs:  { type: integer }
+                stages:      { type: integer }
+                startedAt:   { type: string, format: date-time }
+        changesets:
+          type: array
+          items:
+            type: object
+            properties:
+              id:         { type: string }
+              author:     { type: string }
+              filePath:   { type: string }
+              hasRollback: { type: boolean }
+              release:    { type: string }
+              production: { type: string, enum: [EXECUTED, PENDING, FAILED] }
+        files:            { type: array, items: { type: string } }
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              check:     { type: string }
+              severity:  { type: integer }
+              result:    { type: string }
+              message:   { type: string }
+              line:      { type: integer }
+              changeset: { type: string }
+              filePath:  { type: string }
+
+    TimelineEvent:
+      type: object
+      properties:
+        kind:         { type: string, enum: [DEPLOY, PROMOTION] }
+        at:           { type: string, format: date-time }
+        stageId:      { type: string, format: uuid }
+        environment:  { type: string }
+        release:      { type: string }
+        changesets:   { type: integer, description: Only for DEPLOY. }
+        by:           { type: string }
+        ciPipelineId: { type: string }
+        url:          { type: string, description: The CI job (DEPLOY) or the GitLab pipeline (PROMOTION). }
+        operationId:  { type: string, format: uuid, description: Only for DEPLOY. }
+        outOfProcess: { type: boolean, description: "Seen by the scanner, not reported by a collector." }
+        status:       { type: string, enum: [TRIGGERED, FAILED], description: Only for PROMOTION. }
+
+    Promotion:
+      type: object
+      properties:
+        id:             { type: string, format: uuid }
+        pipelineId:     { type: string, format: uuid }
+        stageId:        { type: string, format: uuid }
+        environment:    { type: string }
+        release:        { type: string }
+        status:         { type: string, enum: [REQUESTED, TRIGGERED, FAILED, REJECTED, CANCELED, EXPIRED] }
+        requestedBy:    { type: string }
+        decidedBy:      { type: string, description: 'Who approved, rejected or cancelled it.' }
+        decidedAt:      { type: string, format: date-time }
+        gitlabPipeline: { type: string }
+        gitlabUrl:      { type: string }
+        error:          { type: string }
+        createdAt:      { type: string, format: date-time }
+
+    NotificationRuleBody:
+      type: object
+      required: [name, event, channel]
+      properties:
+        name:        { type: string }
+        event:       { type: string, enum: [PRD_FAILURE, GATE_BLOCKED, DRIFT_DETECTED, EXCEPTION_EXPIRING, ROLLBACK_PENDING, SYSTEM_ALERT] }
+        channel:     { type: string, enum: [EMAIL, TEAMS, SLACK] }
+        target:      { type: string, description: "Addresses separated by comma, or an https webhook URL. Required on create." }
+        environment: { type: string, description: Only events in this environment. }
+        project:     { type: string, description: Only events of this project (slug). }
+        enabled:     { type: boolean, default: true }
+        minSeverity: { type: integer, minimum: 0, maximum: 4, description: "Only events at or above this severity (0 INFO to 4 BLOCKER); an event that carries none is always told." }
+        quietStart:  { type: string, example: "22:00", description: "Quiet hours, with quietEnd (both or neither): nothing leaves in between, the message waits for the end." }
+        quietEnd:    { type: string, example: "07:00" }
+        quietZone:   { type: string, example: America/Sao_Paulo, description: "Java zone id; UTC when left out." }
+        digestMinutes: { type: integer, minimum: 5, maximum: 1440, description: "One message every N minutes for what piled up." }
+        # The four options above are the rule's whole state: an update that leaves one out clears it.
+
+    NotificationRule:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        name:        { type: string }
+        event:       { type: string }
+        channel:     { type: string }
+        target:      { type: string, description: "The addresses; for a webhook only its host." }
+        environment: { type: string }
+        project:     { type: string }
+        enabled:     { type: boolean }
+        minSeverity: { type: integer }
+        quietStart:  { type: string }
+        quietEnd:    { type: string }
+        quietZone:   { type: string }
+        digestMinutes: { type: integer }
+        createdBy:   { type: string }
+        createdAt:   { type: string, format: date-time }
+
+    RollbackRequest:
+      type: object
+      properties:
+        id:                { type: string, format: uuid }
+        operationId:       { type: string, format: uuid }
+        kind:              { type: string, enum: [CHANGESET, TAG] }
+        changeset:         { type: string }
+        changesetAuthor:   { type: string }
+        tag:               { type: string }
+        plan:              { type: array, items: { $ref: '#/components/schemas/RollbackItem' }, description: "For CHANGESET: what it undoes, newest first, frozen when requested." }
+        count:             { type: integer, description: "Size of the plan." }
+        reason:            { type: string }
+        status:            { type: string, enum: [REQUESTED, APPROVED, REJECTED, CANCELED, RUNNING, DONE, FAILED] }
+        connection:        { type: string }
+        environment:       { type: string }
+        requestedBy:       { type: string }
+        approvedBy:        { type: string, description: '"auto" outside production.' }
+        decidedAt:         { type: string, format: date-time }
+        claimedBy:         { type: string }
+        finishedAt:        { type: string, format: date-time }
+        resultOperationId: { type: string, format: uuid }
+        error:             { type: string }
+        createdAt:         { type: string, format: date-time }
+
+    AccessRequest:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        requester:   { type: string, description: "The login." }
+        email:       { type: string }
+        groups:      { type: array, items: { type: string } }
+        message:     { type: string }
+        status:      { type: string, enum: [OPEN, GRANTED, DISMISSED] }
+        requestedAt: { type: string, format: date-time }
+        resolvedAt:  { type: string, format: date-time }
+        resolvedBy:  { type: string, description: "A person, or `system` when a binding was granted meanwhile." }
+        resolvedNote: { type: string }
+        already:     { type: boolean, description: "On asking again too soon: this is the request that was already open." }
+
+    RollbackItem:
+      type: object
+      description: One changeset a rollback undoes.
+      properties:
+        changesetUuid: { type: string, format: uuid }
+        changesetId:   { type: string }
+        author:        { type: string }
+        filePath:      { type: string }
+        hasRollback:   { type: boolean }
+        deployedAt:    { type: string, format: date-time }
+        operationId:   { type: string, format: uuid, description: "The operation that last applied it on the connection." }
+        target:        { type: boolean, description: "The changeset chosen to go back to (the last of the list)." }
+
+    RunnerJob:
+      type: object
+      properties:
+        id:                { type: string, format: uuid }
+        kind:              { type: string, enum: [CHANGESET, TAG] }
+        tag:               { type: string }
+        parentOperationId: { type: string, format: uuid }
+        changeset:
+          type: object
+          properties:
+            id:       { type: string }
+            author:   { type: string }
+            filePath: { type: string }
+        connection:
+          type: object
+          properties:
+            key:           { type: string }
+            jdbcUrl:       { type: string, description: Without credentials. }
+            defaultSchema: { type: string }
+        environment:       { type: string }
+        project:           { type: string }
+        changelogPath:     { type: string }
+        plan:              { type: array, items: { type: string }, description: "For CHANGESET: what to undo, newest first, as id::author::filePath. Pass each to `--expect`." }
+        gitCommit:         { type: string }
+        contexts:          { type: string }
+        labels:            { type: string }
+
+    DriftRun:
+      type: object
+      properties:
+        id:           { type: string, format: uuid }
+        operationId:  { type: string, format: uuid, description: A drift run is also an operation of type drift. }
+        command:      { type: string, example: diff }
+        status:       { type: string, enum: [SUCCESS, FAILED] }
+        hasDrift:     { type: boolean, description: Omitted when the run failed before comparing. }
+        added:        { type: integer }
+        removed:      { type: integer }
+        modified:     { type: integer }
+        connectionId: { type: string, format: uuid }
+        connection:   { type: string }
+        environment:  { type: string }
+        startedAt:    { type: string, format: date-time }
+        error:        { type: string }
+
+    DriftItem:
+      type: object
+      properties:
+        id:             { type: string, format: uuid }
+        change:         { type: string, enum: [ADDED, REMOVED, MODIFIED] }
+        objectType:     { type: string, enum: [TABLE, COLUMN, INDEX, CONSTRAINT, VIEW, SEQUENCE] }
+        objectName:     { type: string }
+        details:        { type: object, description: "MODIFIED: field to before and after. ADDED and REMOVED: the object definition." }
+        accepted:       { type: boolean }
+        acceptedBy:     { type: string }
+        acceptedReason: { type: string }
+
+    DriftRunDetail:
+      allOf:
+        - $ref: '#/components/schemas/DriftRun'
+        - type: object
+          properties:
+            reference: { type: string, description: What the run was compared with. }
+            items: { type: array, items: { $ref: '#/components/schemas/DriftItem' } }
+
+    DriftSummary:
+      type: object
+      properties:
+        driftRate:     { type: number }
+        driftDetected: { type: integer }
+        cleanChecks:   { type: integer }
+        items:
+          type: object
+          properties:
+            total: { type: integer }
+            added: { type: integer }
+            removed: { type: integer }
+            modified: { type: integer }
+        averageItems:  { type: number }
+        coverage:
+          type: object
+          properties:
+            monitored: { type: integer }
+            total: { type: integer }
+        weekly:
+          type: array
+          description: The last 8 ISO weeks, oldest first.
+          items:
+            type: object
+            properties:
+              week:  { type: integer }
+              from:  { type: string, format: date }
+              items: { type: integer }
+              rate:  { type: number }
+        diverged:
+          type: object
+          properties:
+            connection:      { type: string }
+            comparedAgainst: { type: string }
+            byType:
+              type: array
+              items:
+                type: object
+                properties:
+                  type:  { type: string }
+                  count: { type: integer }
+
+    RoleTemplate:
+      type: object
+      properties:
+        code:        { type: string, example: DBA }
+        name:        { type: string }
+        permissions: { type: array, items: { type: string } }
+
+    Principal:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        type:        { type: string, enum: [USER, GROUP] }
+        externalId:  { type: string }
+        displayName: { type: string }
+        email:       { type: string }
+
+    BindingBody:
+      type: object
+      required: [principalId]
+      properties:
+        principalId:       { type: string, format: uuid }
+        roleTemplate:      { type: string, example: DEV }
+        permissions:       { type: array, items: { type: string }, description: Added to the template. }
+        deniedPermissions: { type: array, items: { type: string }, description: "Always beat a grant, from any binding." }
+        scopeType:         { type: string, enum: [WORKSPACE, PROJECT, CONNECTION, PIPELINE, ENVIRONMENT], default: WORKSPACE }
+        scopeId:           { type: string, format: uuid, description: Required unless the scope is WORKSPACE. }
+        approver:          { type: string }
+        expiresAt:         { type: string, format: date-time }
+
+    Binding:
+      type: object
+      properties:
+        id:                { type: string, format: uuid }
+        principal:         { $ref: '#/components/schemas/Principal' }
+        roleTemplate:      { type: string }
+        roleTemplateName:  { type: string }
+        permissions:       { type: array, items: { type: string }, description: "What it really grants, after its own denials." }
+        extraPermissions:  { type: array, items: { type: string } }
+        deniedPermissions: { type: array, items: { type: string } }
+        scopeType:         { type: string }
+        scopeId:           { type: string, format: uuid }
+        approver:          { type: string }
+        expiresAt:         { type: string, format: date-time }
+        createdAt:         { type: string, format: date-time }
+
+    PolicyException:
+      type: object
+      properties:
+        id:              { type: string, format: uuid }
+        check:           { type: string }
+        changeset:       { type: string }
+        changesetAuthor: { type: string }
+        project:         { type: string }
+        environment:     { type: string }
+        justification:   { type: string }
+        requestedBy:     { type: string }
+        approvedBy:      { type: string }
+        status:          { type: string, enum: [REQUESTED, APPROVED, REJECTED, REVOKED, EXPIRED] }
+        expiresAt:       { type: string, format: date-time }
+        createdAt:       { type: string, format: date-time }
+
+    PolicyCheckDefinition:
+      type: object
+      description: A check as written in the library (create and edit bodies, and what they return).
+      properties:
+        id:              { type: string, format: uuid }
+        code:            { type: string, description: Letters and digits; unique across the builtins and the own checks of the workspace. }
+        shortName:       { type: string }
+        description:     { type: string }
+        category:        { type: string }
+        scope:           { type: string, enum: [CHANGELOG, DATABASE, BOTH] }
+        changelogTypes:  { type: string, example: 'XML,SQL,YAML,JSON' }
+        kind:            { type: string, enum: [BUILTIN, REGEX, SQL_PATTERN, SPEL, CHAINED] }
+        defaultSeverity: { $ref: '#/components/schemas/Severity' }
+        parameters:
+          type: object
+          description: |
+            REGEX: `pattern`, `appliesTo` (SQL, COMMENT, ID), `mustMatch`.
+            SQL_PATTERN: `statementType`, `operator`, `tables`, `columns`, `requiredConstraints`.
+            SPEL: `expression`, true when the changeset breaks the rule; variables `changeSet`, `change`, `sql`, `env`, no method calls (docs/08 § 7).
+        messageTemplate: { type: string, description: 'Variables: <CHANGESET_ID>, <AUTHOR>, <ENV>, <TABLE_NAME>, <COLUMN_NAME>, <OBJECT>.' }
+        members:         { type: array, items: { type: string }, description: Codes of the checks a CHAINED check runs. }
+        enabled:         { type: boolean }
+        parentId:        { type: string, format: uuid }
+
+    PolicyPackageBody:
+      type: object
+      properties:
+        name:                  { type: string }
+        description:           { type: string }
+        blockThresholdProd:    { type: integer, minimum: 1, maximum: 4, default: 3 }
+        blockThresholdNonprod: { type: integer, minimum: 1, maximum: 4, default: 4 }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [code]
+            properties:
+              code:               { type: string }
+              severityOverride:   { $ref: '#/components/schemas/Severity' }
+              parametersOverride: { type: object }
+
+    PolicyPackage:
+      allOf:
+        - $ref: '#/components/schemas/PolicyPackageBody'
+        - type: object
+          properties:
+            id:         { type: string, format: uuid }
+            changelogs: { type: integer, description: Changelogs assigned to it. }
+            stages:     { type: integer, description: Pipeline stages assigned to it. }
+            isDefault:  { type: boolean }
+
+    PolicyCheck:
+      type: object
+      properties:
+        id:              { type: string, format: uuid }
+        code:            { type: string, example: RollbackRequired }
+        shortName:       { type: string }
+        description:     { type: string }
+        category:        { type: string }
+        scope:           { type: string, enum: [CHANGELOG, DATABASE, BOTH] }
+        kind:            { type: string, enum: [BUILTIN, REGEX, SQL_PATTERN, SPEL, CHAINED] }
+        defaultSeverity: { $ref: '#/components/schemas/Severity' }
+        enabled:         { type: boolean }
+        prebuilt:        { type: boolean, description: True for the global catalogue; false for a workspace's own check. }
+        parentId:        { type: string, format: uuid, description: The builtin this check was copied from. }
+        packages:        { type: integer, description: In how many packages the check appears. }
+        implemented:
+          type: boolean
+          description: Whether the engine has code behind a BUILTIN check. A check that is not implemented sits in the catalogue, disabled, and protects nothing.
+
+    EffectivePolicies:
+      type: object
+      properties:
+        package: { type: string, example: gate-prd }
+        etag:    { type: string }
+        blockThreshold: { $ref: '#/components/schemas/Severity' }
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              code:     { type: string }
+              kind:     { type: string, enum: [BUILTIN, REGEX, SQL_PATTERN, SPEL, CHAINED] }
+              severity: { $ref: '#/components/schemas/Severity' }
+              parameters: { type: object, additionalProperties: true }
+        exceptions:
+          type: array
+          items:
+            type: object
+            properties:
+              check:     { type: string }
+              changeset: { type: string }
+              expiresAt: { type: string, format: date-time }
+
+    OperationSummary:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        command:     { $ref: '#/components/schemas/Command' }
+        status:      { $ref: '#/components/schemas/OperationStatus' }
+        type:        { $ref: '#/components/schemas/OperationType' }
+        source:      { $ref: '#/components/schemas/OperationSource' }
+        executedBy:  { type: string }
+        project:     { type: string }
+        projectId:   { type: string, format: uuid }
+        changelogId: { type: string, format: uuid }
+        changeset:   { type: string, description: The first changeset the operation evaluated. }
+        changesetId: { type: string, format: uuid, description: "Where to open it, GET /changesets/{id}." }
+        changesetCount: { type: integer }
+        connection:  { type: string }
+        environment: { type: string }
+        release:     { type: string }
+        startedAt:   { type: string, format: date-time }
+        durationMs:  { type: integer, format: int64 }
+        isBreakFix:  { type: boolean }
+
+    OperationDetail:
+      allOf:
+        - $ref: '#/components/schemas/OperationSummary'
+        - type: object
+          properties:
+            endedAt:      { type: string, format: date-time }
+            deploymentId: { type: string }
+            changelog:    { type: string }
+            contexts:     { type: string }
+            labels:       { type: string }
+            gitCommit:    { type: string }
+            gitBranch:    { type: string }
+            ciJobUrl:     { type: string, format: uri }
+            gateResult:   { $ref: '#/components/schemas/GateResult' }
+            errorMessage: { type: string }
+            summary:
+              type: object
+              properties:
+                executed:      { type: integer }
+                previouslyRun: { type: integer }
+                filtered:      { type: integer }
+                failed:        { type: integer }
+            runtime:
+              type: object
+              properties:
+                engine:           { type: string }
+                dbVersion:        { type: string }
+                liquibaseVersion: { type: string }
+                collector:        { type: string }
+            hasLog: { type: boolean, description: 'Whether /log has content to serve.' }
+            hasSql: { type: boolean, description: 'Whether /sql has content to serve.' }
+            # Feeds the diagnosis panel of screen 02, which stands in for AI analysis
+            # while that remains a future feature (D-13). Absent when nothing failed.
+            failedChangeset:
+              type: object
+              properties:
+                id:           { type: string }
+                author:       { type: string }
+                filePath:     { type: string }
+                errorMessage: { type: string }
+                environments:
+                  type: array
+                  description: |
+                    The SAME changeset in every environment, in pipeline order. "Passed in
+                    DEV, TST and HML, failed in PRD" points at the data, not the changeset.
+                  items:
+                    type: object
+                    properties:
+                      environment: { type: string }
+                      status:      { type: string, enum: [EXECUTED, FAILED, ROLLED_BACK, PENDING, NOT_TARGETED, OUT_OF_PROCESS] }
+                      deployedAt:  { type: string, format: date-time }
+            findings:
+              type: array
+              description: Policy findings raised by this operation, most severe first.
+              items:
+                type: object
+                properties:
+                  check:      { type: string }
+                  severity:   { $ref: '#/components/schemas/Severity' }
+                  result:     { $ref: '#/components/schemas/GateResult' }
+                  message:    { type: string }
+                  objectName: { type: string }
+                  changeset:  { type: string }
+
+    OperationChangeset:
+      type: object
+      properties:
+        changesetId:  { type: string }
+        author:       { type: string }
+        filePath:     { type: string }
+        outcome:      { $ref: '#/components/schemas/ChangesetOutcome' }
+        filterReason: { type: string }
+        release:      { type: string }
+        startedAt:    { type: string, format: date-time }
+        durationMs:   { type: integer, format: int64 }
+        errorMessage: { type: string }
+
+    OperationKpis:
+      type: object
+      properties:
+        total:            { type: integer }
+        trendPct:         { type: number, format: double }
+        successRate:      { type: number, format: double }
+        succeeded:        { type: integer }
+        medianDurationMs: { type: integer, format: int64 }
+        caughtBeforeProd: { type: integer }
+        failuresNonProd:  { type: integer }
+
+    DeploymentMatrix:
+      type: object
+      properties:
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              stageId:     { type: string, format: uuid }
+              env:         { type: string }
+              envName:     { type: string, description: "Display name, e.g. Desenvolvimento." }
+              connection:  { type: string }
+        kpis:
+          type: object
+          properties:
+            inSyncAll:          { type: integer }
+            total:              { type: integer }
+            environments:       { type: integer }
+            awaitingPromotion:  { type: integer }
+            awaitingPromotionEnvironment:
+              type: string
+              description: Code of the furthest environment holding a pending change. Absent when nothing is pending.
+            failedWithFix:      { type: integer }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              changeset:  { type: string }
+              author:     { type: string }
+              filePath:   { type: string }
+              release:    { type: string }
+              isBreakFix: { type: boolean }
+              contexts:   { type: string }
+              removed:    { type: boolean, description: "No longer in the changelog on the default branch. Listed only while a database of the pipeline still holds it; it has no 'next stop' and is left out of the KPIs." }
+              removedAt:  { type: string, format: date-time }
+              onlyInBranch: { type: boolean, description: "Never seen on the default branch: it lives in a merge request or a feature branch. Listed only while a database holds it." }
+              origin:
+                type: object
+                description: "Where an onlyInBranch changeset came from."
+                properties:
+                  branch:  { type: string }
+                  mrIid:   { type: string }
+                  mrTitle: { type: string }
+                  mrUrl:   { type: string }
+              cells:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    stageId:     { type: string, format: uuid }
+                    status:
+                      type: string
+                      description: |
+                        Derived, not just stored. PENDING is the NEXT stop (everything before it is fine);
+                        NOT_REACHED means an earlier stage is not fine either, and is shown as a dash.
+                      enum: [EXECUTED, FAILED, ROLLED_BACK, PENDING, NOT_TARGETED, OUT_OF_PROCESS, NOT_REACHED]
+                    operationId: { type: string, format: uuid }
+                    deployedAt:  { type: string, format: date-time }
+
+    Dashboard:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            days: { type: integer }
+            from: { type: string, format: date-time }
+            to:   { type: string, format: date-time }
+        header:
+          type: object
+          properties:
+            teams:       { type: integer }
+            connections: { type: integer }
+            pipelines:   { type: integer }
+            operations:  { type: integer, description: Operations started within the period. }
+        dora:
+          type: object
+          description: |
+            A DEPLOY is a `database-change` operation whose command is update, update-to-tag,
+            update-count or flow, and which either executed something or failed. An update that
+            only found everything already applied is not a deploy.
+          properties:
+            deployFrequency:
+              type: object
+              properties:
+                perDay:   { type: number, format: double }
+                deploys:  { type: integer }
+                trendPct: { type: number, format: double, description: 'Percent change against the previous window. Higher is better.' }
+            changeFailureRate:
+              type: object
+              properties:
+                value:    { type: number, format: double, description: "Failed deploys over deploys, in percent." }
+                part:     { type: integer }
+                whole:    { type: integer }
+                trendPts: { type: number, format: double, description: 'Change in percentage POINTS. Lower is better.' }
+            rollbackRate:
+              type: object
+              properties:
+                value:    { type: number, format: double, description: "Successful rollbacks over SUCCESSFUL deploys, in percent." }
+                part:     { type: integer }
+                whole:    { type: integer }
+                trendPts: { type: number, format: double, description: 'Change in percentage POINTS. Lower is better.' }
+            cycleTime:
+              type: object
+              properties:
+                hours:      { type: number, format: double, description: 'Median, per changeset that reached production in the period, from its first non-production run to that run.' }
+                changesets: { type: integer }
+                trendPct:   { type: number, format: double, description: 'Percent change against the previous window. Lower is better.' }
+        policies:
+          type: object
+          description: |
+            Read from `metric_daily`, which jobs keep at most ten minutes behind. `passRate.value` is omitted
+            (not 0) when nothing was evaluated. Coverage counts a workspace default package as covering everything.
+          properties:
+            passRate:
+              type: object
+              properties:
+                value:    { type: number, format: double }
+                part:     { type: integer, description: Evaluations that passed. }
+                whole:    { type: integer, description: Evaluations. }
+                trendPts: { type: number, format: double, description: 'Percentage POINTS against the previous window. Higher is better.' }
+            blocked:
+              type: object
+              description: Gates that blocked in a PRODUCTION environment.
+              properties:
+                count:    { type: integer }
+                trendAbs: { type: integer, description: Difference against the previous window. Lower is better. }
+            databaseCoverage:  { type: object, properties: { covered: { type: integer }, total: { type: integer } } }
+            changelogCoverage: { type: object, properties: { covered: { type: integer }, total: { type: integer } } }
+        drift:
+          type: object
+          properties:
+            driftRate:
+              type: object
+              properties:
+                value:    { type: number, format: double }
+                part:     { type: integer, description: Runs with drift. }
+                whole:    { type: integer, description: Successful runs. }
+                trendPts: { type: number, format: double, description: Lower is better. }
+            detected: { type: object, properties: { count: { type: integer }, trendAbs: { type: integer } } }
+            items:
+              type: object
+              properties:
+                total:    { type: integer }
+                added:    { type: integer }
+                removed:  { type: integer }
+                modified: { type: integer }
+                trendAbs: { type: integer }
+            monitoring: { type: object, properties: { monitored: { type: integer }, total: { type: integer } } }
+
+    ActivityRow:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        startedAt:   { type: string, format: date-time }
+        team:        { type: string }
+        project:     { type: string }
+        projectId:   { type: string, format: uuid }
+        changelogId: { type: string, format: uuid }
+        changesetId: { type: string, format: uuid, description: The changeset when the operation evaluated exactly one. }
+        changesetCount: { type: integer }
+        subject:
+          type: string
+          description: |
+            What the operation was about: the changeset's id when there is one, "<release> package"
+            when there are several, "schema snapshot" for a diff. Absent when nothing was evaluated.
+        connection:  { type: string, description: The database's display name. }
+        environment: { type: string }
+        command:     { $ref: '#/components/schemas/Command' }
+        scope:       { type: integer, description: 'Changesets executed, previously run and failed. Absent for a diff.' }
+        status:      { $ref: '#/components/schemas/OperationStatus' }
+
+    Me:
+      type: object
+      properties:
+        name:    { type: string, description: "Preferred username, or the subject; dev for the unnamed development caller." }
+        email:   { type: string }
+        groups:  { type: array, items: { type: string } }
+        devMode: { type: boolean, description: "True for the unnamed development caller, who holds everything because no identity provider is configured." }
+        permissions:
+          type: array
+          items: { type: string }
+          description: Effective permissions of the bindings in the workspace (grants minus denials); `*:*` for the development caller or a bootstrap admin.
+        bindings: { type: integer }
+        workspaces:
+          type: array
+          items:
+            type: object
+            properties:
+              slug: { type: string }
+              name: { type: string }
+
+    Team:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    TeamRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        teamId: { type: [string, 'null'], format: uuid }
+        slug: { type: string, description: What the collector reports in lqm.project. }
+        name: { type: string }
+        repoUrl: { type: [string, 'null'], description: Used to read the changelog files in Developer Mode. }
+        defaultBranch: { type: string }
+        description: { type: [string, 'null'] }
+    ProjectRequest:
+      type: object
+      required: [slug, name]
+      properties:
+        slug: { type: string, description: 'Lowercase letters, digits and hyphen.' }
+        name: { type: string }
+        teamId: { type: [string, 'null'], format: uuid }
+        repoUrl: { type: [string, 'null'] }
+        defaultBranch: { type: [string, 'null'], description: Defaults to main. }
+        description: { type: [string, 'null'] }
+
+    Changelog:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        name: { type: string }
+        path: { type: string }
+        format: { type: string, enum: [XML, YAML, JSON, SQL] }
+        policyPackageId: { type: [string, 'null'], format: uuid }
+        verified: { type: boolean }
+    ChangelogRequest:
+      type: object
+      required: [name, path, format]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        format: { type: string, enum: [XML, YAML, JSON, SQL] }
+        policyPackageId: { type: [string, 'null'], format: uuid, description: Written as sent; omitting it unassigns the package. }
+        verified: { type: boolean }
+
+    Environment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        sortOrder: { type: integer }
+        colorToken: { type: string }
+        isProduction: { type: boolean }
+        requiresApproval: { type: boolean }
+    EnvironmentRequest:
+      type: object
+      required: [code, name, sortOrder]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        sortOrder: { type: integer }
+        colorToken: { type: string }
+        isProduction: { type: boolean }
+        requiresApproval: { type: boolean }
+
+    Connection:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        environmentId: { type: string, format: uuid }
+        slug: { type: string, description: The connectionKey collectors report. }
+        displayName: { type: string }
+        engine: { type: string, example: SQLSERVER }
+        jdbcUrl: { type: string, description: Never carries a user or a password. }
+        defaultSchema: { type: [string, 'null'] }
+        hostFingerprint: { type: [string, 'null'] }
+        secretProvider: { type: [string, 'null'], enum: [NONE, ENV, VAULT, CONSUL, AZURE_KV, null] }
+        secretRef: { type: [string, 'null'], description: 'A reference to the secret, never its value.' }
+        secretRotatedAt: { type: [string, 'null'], format: date-time }
+        driftEnabled: { type: boolean }
+        driftCron: { type: [string, 'null'] }
+        scannerEnabled: { type: boolean }
+        scannerIntervalMin: { type: [integer, 'null'] }
+        dbVersion: { type: [string, 'null'] }
+        lastTestAt: { type: [string, 'null'], format: date-time }
+        lastTestOk: { type: [boolean, 'null'] }
+        verified: { type: boolean, description: False for a connection that appeared on its own at a collector's first ingestion. }
+    ConnectionRequest:
+      type: object
+      required: [environmentId, slug, displayName, engine, jdbcUrl]
+      properties:
+        environmentId: { type: string, format: uuid }
+        slug: { type: string }
+        displayName: { type: string }
+        engine: { type: string }
+        jdbcUrl: { type: string }
+        defaultSchema: { type: [string, 'null'] }
+        secretProvider: { type: [string, 'null'], enum: [NONE, ENV, VAULT, CONSUL, AZURE_KV, null] }
+        secretRef: { type: [string, 'null'] }
+        driftEnabled: { type: boolean }
+        driftCron: { type: [string, 'null'] }
+        scannerEnabled: { type: boolean }
+        scannerIntervalMin: { type: [integer, 'null'] }
+        verified: { type: boolean }
+        projectIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: When present, replaces the projects linked to the connection.
+    ConnectionTest:
+      type: object
+      properties:
+        ok: { type: boolean }
+        dbVersion: { type: string }
+        message: { type: string, description: The driver message when ok is false. }
+        latencyMs: { type: integer }
+
+    Pipeline:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        projectId: { type: string, format: uuid }
+        gitlabProjectId: { type: [integer, 'null'], format: int64 }
+        gitlabTriggerRef: { type: [string, 'null'] }
+    PipelineRequest:
+      type: object
+      required: [name, projectId]
+      properties:
+        name: { type: string }
+        projectId: { type: string, format: uuid }
+        gitlabProjectId: { type: [integer, 'null'], format: int64 }
+        gitlabTriggerRef: { type: [string, 'null'] }
+    Stage:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        pipelineId: { type: string, format: uuid }
+        sortOrder: { type: integer }
+        environmentId: { type: string, format: uuid }
+        dbConnectionId: { type: string, format: uuid }
+        policyPackageId: { type: [string, 'null'], format: uuid }
+        requiresApproval: { type: boolean }
+        autoRequest: { type: boolean, description: "When the stage before receives a deploy, a REQUESTED promotion for this stage opens by itself (needs requiresApproval)." }
+    StageRequest:
+      type: object
+      required: [sortOrder, environmentId, dbConnectionId]
+      properties:
+        sortOrder: { type: integer }
+        environmentId: { type: string, format: uuid }
+        dbConnectionId: { type: string, format: uuid }
+        policyPackageId: { type: [string, 'null'], format: uuid, description: Written as sent; omitting it unassigns the package. }
+        requiresApproval: { type: boolean }
+        autoRequest: { type: boolean, description: Only has effect together with requiresApproval. }
+
+    ServiceToken:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        prefix: { type: string, description: The first 8 characters after lqm_. }
+        scopes:
+          type: array
+          items: { type: string, enum: [ingest, 'checks:read', runner, webhook] }
+        projectIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: Empty means every project of the workspace.
+        expiresAt: { type: [string, 'null'], format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        createdBy: { type: [string, 'null'] }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    ServiceTokenRequest:
+      type: object
+      required: [name, scopes, expiresAt]
+      properties:
+        name: { type: string }
+        scopes:
+          type: array
+          items: { type: string, enum: [ingest, 'checks:read', runner, webhook] }
+        projectIds:
+          type: array
+          items: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time, description: One year at most. }
+    IssuedServiceToken:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        prefix: { type: string }
+        token: { type: string, description: 'lqm_<prefix8>_<secret32>. Shown here once and never again.' }
+        notice: { type: string }
+
+    Workspace:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        aiEnabled: { type: boolean, description: False by decision D-13. }
+        createdAt: { type: string, format: date-time }
+        jobRunRetentionDays: { type: integer }
+        notificationRetentionDays: { type: integer }
+        promotionTtlHours: { type: integer }

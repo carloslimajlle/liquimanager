@@ -1,0 +1,36 @@
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # The SPA's own files are hashed by the build: cache them for good. The entry page and the runtime config never.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location = /config.js {
+        add_header Cache-Control "no-store";
+    }
+
+    # The API, and its live feed (SSE): no buffering, or the browser sees nothing until the stream ends, and a long read timeout,
+    # because an idle stream is normal (the API sends a comment every 20 s).
+    location /api/ {
+        proxy_pass ${LQM_API_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
+    # Every other path is a screen of the SPA.
+    location / {
+        add_header Cache-Control "no-store";
+        try_files $uri /index.html;
+    }
+}

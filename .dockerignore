@@ -1,0 +1,7 @@
+.git
+**/node_modules
+**/target
+lqm-web/dist
+data
+deploy
+lqm-web/storybook-static

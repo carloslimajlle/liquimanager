@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # What the repository promises about itself, with no build: the contract.
+  consistency:
+    name: OpenAPI contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Lint the OpenAPI contract
+        run: npx --yes @redocly/cli@2.72.1 lint contracts/openapi.yaml
+
+  backend:
+    name: Backend (Java 21, PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: lqm
+          POSTGRES_USER: lqm
+          POSTGRES_PASSWORD: lqm
+          TZ: UTC
+          PGTZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lqm -d lqm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # An EMPTY database on purpose: "the API applies its schema" only counts when nothing was there before.
+      LQM_TEST_DB_URL: jdbc:postgresql://localhost:5432/lqm
+      DRIFT_TEST_USERNAME: lqm
+      DRIFT_TEST_PASSWORD: lqm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # Runs every module's tests, including the update -> rollback of everything -> update of the product's own schema.
+      - name: Build and test
+        run: mvn -B -ntp verify
+      - name: Test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports'
+          retention-days: 7
+
+  sqlserver:
+    name: Drift and scanner on SQL Server
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: lqm
+          POSTGRES_USER: lqm
+          POSTGRES_PASSWORD: lqm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lqm -d lqm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: Lqm!Local123
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+    env:
+      LQM_TEST_DB_URL: jdbc:postgresql://localhost:5432/lqm
+      DRIFT_TEST_USERNAME: lqm
+      DRIFT_TEST_PASSWORD: lqm
+      MSSQL_TEST_URL: jdbc:sqlserver://localhost:1433;databaseName=lqm_target;encrypt=true;trustServerCertificate=true
+      MSSQL_TEST_USERNAME: lqm_app
+      MSSQL_TEST_PASSWORD: App!Local123
+      MSSQL_BLIND_USERNAME: lqm_blind
+      MSSQL_BLIND_PASSWORD: Blind!Local123
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: Prepare the SQL Server target (database and accounts)
+        run: |
+          for i in $(seq 1 40); do
+            if docker run --rm --network host -v "$PWD/deploy/mssql:/sql:ro" mcr.microsoft.com/mssql-tools \
+                 /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Lqm!Local123' -b -i /sql/init.sql; then
+              exit 0
+            fi
+            echo "SQL Server is not ready yet ($i)"; sleep 5
+          done
+          echo "SQL Server did not come up" >&2; exit 1
+      - name: SQL Server tests
+        run: mvn -B -ntp test -pl lqm-api -am -Dtest=SqlServerTargetIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
+
+  web:
+    name: Web (typecheck, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lqm-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: lqm-web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # The component catalogue (phase 0): a story that no longer compiles against its component fails here.
+      - run: npm run build-storybook
+
+  # The images the repository ships. Each compiles on Java 21 inside its own Dockerfile, so this also proves the Dockerfile.
+  image:
+    name: Image ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, cli, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: lqm-${{ matrix.image }}/Dockerfile
+          load: true
+          tags: lqm-${{ matrix.image }}:ci
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      # The CLI image is what a GitLab job runs: `lqm` has to be on the PATH of a non-root user, with no entrypoint in the way.
+      - name: Smoke test of the CLI image
+        if: matrix.image == 'cli'
+        run: |
+          docker run --rm lqm-cli:ci lqm --version
+          docker run --rm lqm-cli:ci sh -c 'test "$(id -u)" != 0 && lqm checks run --help > /dev/null && git --version'
+      # The SPA behind Nginx: the configuration has to be read when it starts (one image for every environment), the SPA has to answer on
+      # any of its paths, and /api has to be proxied.
+      - name: Smoke test of the web image
+        if: matrix.image == 'web'
+        run: |
+          docker run -d --name web -p 8088:80 -e LQM_API_URL=http://127.0.0.1:9 -e LQM_OIDC_AUTHORITY=https://sso.example/realms/lqm lqm-web:ci
+          sleep 3
+          curl -fs http://localhost:8088/config.js | grep -q 'https://sso.example/realms/lqm'
+          curl -fs http://localhost:8088/projects/anything | grep -q 'id="root"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8088/api/v1/projects)" = 502
+          docker exec web nginx -t
+      # The runner as a service: it has to leave quickly and cleanly on SIGTERM (what `docker stop`, a deploy or systemd send),
+      # finishing a rollback in hand and not being killed. Nothing answers at the address, which is fine: it only waits.
+      - name: The runner stops cleanly on SIGTERM
+        if: matrix.image == 'cli'
+        run: |
+          docker run -d --name runner -e LQM_URL=http://127.0.0.1:9/api/v1 -e LQM_TOKEN=lqm_x_y lqm-cli:ci lqm runner --poll-seconds 5
+          sleep 8
+          start=$(date +%s)
+          docker stop -t 30 runner
+          elapsed=$(( $(date +%s) - start ))
+          code=$(docker inspect runner --format '{{.State.ExitCode}}')
+          docker logs runner
+          test "$code" = 0 || { echo "exit code $code, expected 0"; exit 1; }
+          test "$elapsed" -lt 15 || { echo "took ${elapsed}s to stop"; exit 1; }

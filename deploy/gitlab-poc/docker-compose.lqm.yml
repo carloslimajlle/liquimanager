@@ -1,0 +1,16 @@
+# Points the LiquiManager API at the GitLab POC. An override of deploy/docker-compose.yml:
+#
+#   python deploy/gitlab-poc/connect-lqm.py setup
+#   docker compose -f deploy/docker-compose.yml -f deploy/gitlab-poc/docker-compose.lqm.yml \
+#       --env-file deploy/gitlab-poc/.lqm/lqm.env up -d api
+#
+# The personal access token is the one setup-poc.sh creates for the POC root user: a local, disposable credential.
+
+services:
+  api:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      LQM_GITLAB_BASE_URL: http://host.docker.internal:8929
+      LQM_GITLAB_READ_TOKEN: glpat-poc-liquibase-token1
+      LQM_GITLAB_TRIGGER_TOKEN: ${LQM_GITLAB_TRIGGER_TOKEN:?run connect-lqm.py setup first}

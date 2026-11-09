@@ -1,0 +1,24 @@
+# Turns sign-in on: the API stops accepting anonymous calls and validates Keycloak tokens.
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.oidc.yml up -d
+#   cd lqm-web && npm run dev:oidc
+#
+# The realm (clients, groups and development users) comes from deploy/keycloak/liquimanager-realm.json.
+
+services:
+  keycloak:
+    environment:
+      # One issuer for everyone: the browser reaches Keycloak at localhost:8081, the API at keycloak:8080,
+      # and both must see tokens issued by http://localhost:8081.
+      KC_HOSTNAME: http://localhost:8081
+
+  api:
+    environment:
+      # `iss` of a token is the address the browser used.
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8081/realms/liquimanager
+      # The keys are fetched inside the compose network, where localhost is not Keycloak.
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/liquimanager/protocol/openid-connect/certs
+      # Only tokens minted for this API (the lqm-web client adds the audience).
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_AUDIENCES: lqm-api
+      # Holds every permission, to make the first grants of a new installation.
+      LQM_SECURITY_BOOTSTRAP_ADMINS: admin.lqm

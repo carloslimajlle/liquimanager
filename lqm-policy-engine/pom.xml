@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.github.carloslimajlle.liquimanager</groupId>
+    <artifactId>liquimanager</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>lqm-policy-engine</artifactId>
+  <name>LiquiManager :: Policy Engine</name>
+  <description>
+    Pure library (no Spring Boot; only spring-expression, D-21) holding the policy checks. It is the SAME library used by
+    the API, the CLI and the starter, so a check yields an identical result wherever it
+    runs (docs/04 § 3). The policy definitions themselves come from the API.
+  </description>
+
+  <dependencies>
+    <!--
+      PROVIDED, never imposed. The engine is compiled against Liquibase 5.x but runs inside
+      hosts that bring their own: the CLI and the API on 5.x, and — through the starter —
+      services that still run 4.x (RNF-15). A compile-scope dependency would drag 5.0.4 into
+      every one of those services. Whoever embeds the engine declares Liquibase itself.
+    -->
+    <dependency>
+      <groupId>org.liquibase</groupId>
+      <artifactId>liquibase-core</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <!--
+      Only the expression parser, for SPEL checks (D-21): no Spring context, no Boot. It is evaluated with a
+      SimpleEvaluationContext, which has no method calls, no types and no constructors.
+    -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-expression</artifactId>
+    </dependency>
+  </dependencies>
+</project>

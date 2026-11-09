@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: lqm-worker
+
+  datasource:
+    url: ${LQM_DB_URL:jdbc:postgresql://localhost:5432/lqm}
+    username: ${LQM_DB_USERNAME:lqm}
+    password: ${LQM_DB_PASSWORD:lqm}
+    hikari:
+      maximum-pool-size: 5
+      pool-name: lqm-worker-pool
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # lqm-api owns the schema. The worker only reads and writes data.
+      ddl-auto: validate
+
+  # The worker does NOT apply the changelog: that is the API's job, so two replicas
+  # never fight over the Liquibase lock at startup.
+  liquibase:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    io.github.carloslimajlle.liquimanager: INFO

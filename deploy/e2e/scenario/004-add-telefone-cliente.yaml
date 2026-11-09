@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-add-telefone-cliente
+      author: carlos
+      comment: Telefone de contato do cliente (depende do 001)
+      changes:
+        - addColumn:
+            tableName: cliente
+            columns:
+              - column:
+                  name: telefone
+                  type: VARCHAR(20)
+      rollback:
+        - dropColumn:
+            tableName: cliente
+            columnName: telefone

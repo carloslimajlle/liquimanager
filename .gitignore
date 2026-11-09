@@ -1,0 +1,76 @@
+# --- Java / Maven (lqm-api, lqm-cli, lqm-policy-engine, lqm-core-client, starter, worker) ---
+target/
+build/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+dependency-reduced-pom.xml
+
+# --- Node / frontend (lqm-web) ---
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.eslintcache
+storybook-static/
+
+# --- IDEs ---
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.settings/
+.project
+.classpath
+.factorypath
+
+# --- Operating system ---
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Secrets and local configuration ---
+# No database credential ever enters the repository (RNF-06).
+.env
+.env.*
+!.env.example
+!.env.oidc
+*.local
+application-local.yml
+application-local.yaml
+application-local.properties
+secrets/
+*.pem
+*.key
+*.p12
+*.jks
+*.pfx
+
+# --- Run and test output ---
+logs/
+*.log
+coverage/
+.nyc_output/
+surefire-reports/
+failsafe-reports/
+allure-results/
+k6-results/
+*.hprof
+
+# --- Liquibase (local) ---
+liquibase.properties
+!liquibase.properties.example
+
+# --- Docker / local k8s ---
+.docker-data/
+pgdata/
+
+# Local build scratch
+.m2/
+
+# Local blob storage (lqm.storage.dir) used by FileSystemBlobStore
+data/
