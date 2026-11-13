@@ -15,6 +15,7 @@ import { EmptyState, ErrorCard } from '../../components/States';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import ChangesetSource from './ChangesetSource';
 import GenerateSql from './GenerateSql';
 import { gateLabel, gateTone } from '../governance/rules';
@@ -70,7 +71,7 @@ export default function ChangesetDetail() {
 
   return (
     <>
-      <Topbar trail={[t.app.name, p.title, data?.project ?? '…', data?.changesetId ?? '…']} />
+      <Topbar trail={[crumb(t.app.name, '/'), crumb(p.title, '/projects'), data ? crumb(data.project, `/projects/${data.projectId}?tab=changesets`) : '…', data?.changesetId ?? '…']} />
       <PageHeader
         title={data?.changesetId ?? p.changeset.back}
         subtitle={data ? `${data.author} · ${data.filePath}` : undefined}

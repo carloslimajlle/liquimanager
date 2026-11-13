@@ -15,6 +15,7 @@ import { formatNumber, formatShortDateTime } from '../../lib/format';
 import { ExceptionsPanel } from '../governance/ExceptionsPanel';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import GrantDialog from './GrantDialog';
 import RequestsPanel from './RequestsPanel';
 import { AuditPanel, SecretsPanel } from './SidePanels';
@@ -101,7 +102,7 @@ export default function Access() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, a.title]} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), a.title]} />
       <PageHeader
         title={a.title}
         subtitle={a.subtitle}

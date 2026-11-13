@@ -12,6 +12,7 @@ import { formatNumber, formatShortDateTime } from '../../lib/format';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { isFailure, statusTone } from '../operations/rules';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 
 /** /projects: every application with its changelogs, connections, collector and last operation, each leading to its own page. */
 export default function ProjectsIndex() {
@@ -46,7 +47,7 @@ export default function ProjectsIndex() {
 
   return (
     <>
-      <Topbar trail={[t.app.name, p.title]} />
+      <Topbar trail={[crumb(t.app.name, '/'), p.title]} />
       <PageHeader title={p.title} subtitle={p.subtitle} />
       {kpis && (
         <div className="mb-3 grid grid-cols-2 gap-3 xl:grid-cols-4">

@@ -5,6 +5,7 @@ import PageHeader from '../../components/PageHeader';
 import { EmptyState, ErrorCard } from '../../components/States';
 import { useMessages } from '../../i18n/useMessages';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 
 /** Where the sidebar entry lands: every changelog, to open one in Developer Mode. */
 export default function DeveloperIndex() {
@@ -14,7 +15,7 @@ export default function DeveloperIndex() {
 
   return (
     <>
-      <Topbar trail={[d.breadcrumbRoot, d.breadcrumbList]} />
+      <Topbar trail={[crumb(d.breadcrumbRoot, '/developer'), d.breadcrumbList]} />
       <PageHeader title={d.title} subtitle={d.index.subtitle} />
       <div className="mb-6 rounded-card border border-border bg-surface shadow-card">
         {changelogs.isError ? (

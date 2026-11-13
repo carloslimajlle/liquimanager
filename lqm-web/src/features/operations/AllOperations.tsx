@@ -19,6 +19,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime, formatDurationParts, formatNumber, formatPercent } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { executorLabel, isFailure, pageRange, statusTone } from './rules';
 import { PAGE_SIZE, useOperationFilters } from './useOperationFilters';
 
@@ -158,7 +159,7 @@ export default function AllOperations() {
 
   return (
     <>
-      <Topbar trail={[t.operations.breadcrumbRoot, t.operations.breadcrumbPage]} />
+      <Topbar trail={[crumb(t.operations.breadcrumbRoot, '/operations'), t.operations.breadcrumbPage]} />
       <PageHeader
         title={t.operations.title}
         subtitle={t.operations.subtitle}

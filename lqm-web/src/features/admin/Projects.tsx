@@ -16,6 +16,7 @@ import { fill } from '../../i18n';
 import { useMessages } from '../../i18n/useMessages';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { usePaged } from './paging';
 
 const NEW_TEAM = '__new__';
@@ -55,7 +56,7 @@ export default function Projects() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, p.title]} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), p.title]} />
       <PageHeader title={p.title} subtitle={p.subtitle}
         right={editable && <button type="button" className={primaryButton} onClick={() => setEditing('new')}>{p.newProject}</button>} />
       <AdminTabs />

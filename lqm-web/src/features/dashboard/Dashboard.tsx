@@ -21,6 +21,7 @@ import { fill, intlLocale } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDecimal, formatNumber, formatPercent } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { isFailure, statusTone } from '../operations/rules';
 import { newRowIds, signed, timeOfDay, trendHigherIsBetter, trendLowerIsBetter } from './rules';
 
@@ -144,7 +145,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <Topbar trail={[t.dashboard.breadcrumbRoot, t.dashboard.title]} />
+      <Topbar trail={[crumb(t.dashboard.breadcrumbRoot, '/'), t.dashboard.title]} />
       <PageHeader
         title={t.dashboard.title}
         subtitle={t.dashboard.subtitle}

@@ -15,6 +15,7 @@ import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatShortDateTime } from '../../lib/format';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 
 const DIGESTS = [5, 15, 30, 60, 240, 1440] as const;
 
@@ -84,7 +85,7 @@ export default function Notifications() {
 
   return (
     <>
-      <Topbar trail={[n.breadcrumbRoot, n.title]} />
+      <Topbar trail={[crumb(n.breadcrumbRoot, '/admin'), n.title]} />
       <PageHeader
         title={n.title}
         subtitle={n.subtitle}

@@ -35,6 +35,7 @@ import ChangesetDetail from './features/projects/ChangesetDetail';
 import ProjectHub from './features/projects/ProjectHub';
 import ProjectsIndex from './features/projects/ProjectsIndex';
 import Topbar from './shell/Topbar';
+import { crumb } from './shell/crumbs';
 
 /**
  * Application shell. Each page renders its own Topbar, because the breadcrumb belongs
@@ -46,7 +47,7 @@ function Placeholder({ title, subtitle }: { title: string; subtitle?: string }) 
   const t = useMessages();
   return (
     <>
-      <Topbar trail={[t.app.name, title]} />
+      <Topbar trail={[crumb(t.app.name, '/'), title]} />
       <PageHeader title={title} subtitle={subtitle} />
     </>
   );

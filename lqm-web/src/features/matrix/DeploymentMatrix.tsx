@@ -15,6 +15,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime, formatNumber } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import PendingPromotions from './PendingPromotions';
 import PromoteDialog from './PromoteDialog';
 import Timeline from './Timeline';
@@ -54,7 +55,7 @@ export default function DeploymentMatrix({ mode = 'matrix' }: { mode?: 'matrix' 
 
   const data = matrix.data;
   const current = pipelines.data?.find((p) => p.id === id);
-  const trail = [t.matrix.breadcrumbRoot, t.matrix.title];
+  const trail = [crumb(t.matrix.breadcrumbRoot, '/pipelines'), crumb(t.matrix.title, '/pipelines')];
 
   const releaseOptions = [
     { value: '', label: t.matrix.releaseAll },

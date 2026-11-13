@@ -17,6 +17,7 @@ import { EmptyState, ErrorCard } from '../../components/States';
 import { useMessages } from '../../i18n/useMessages';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { moveItem } from './rules';
 
 /** The colour tokens of the design system (`--env-*-fg/bg` in theme.css). */
@@ -48,7 +49,7 @@ export default function Environments() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, e.title]} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), e.title]} />
       <PageHeader title={e.title} subtitle={e.subtitle}
         right={editable && <button type="button" className={primaryButton} onClick={() => setEditing('new')}>{e.newEnvironment}</button>} />
       <AdminTabs />

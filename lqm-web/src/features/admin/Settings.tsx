@@ -10,6 +10,7 @@ import { ErrorCard } from '../../components/States';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 
 /**
  * /settings: the workspace in use, its retention and deadlines, and who the API thinks you are. AI is off by decision D-13,
@@ -29,7 +30,7 @@ export default function Settings() {
 
   return (
     <>
-      <Topbar trail={[t.admin.breadcrumbRoot, s.breadcrumb]} />
+      <Topbar trail={[crumb(t.admin.breadcrumbRoot, '/admin'), s.breadcrumb]} />
       <PageHeader title={s.title} subtitle={s.subtitle} />
       <div className="grid grid-cols-2 gap-3.5">
         <section className={card}>

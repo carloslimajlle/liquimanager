@@ -16,6 +16,7 @@ import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime, formatNumber, formatPercent } from '../../lib/format';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { ChangelogsPanel } from './Projects';
 import { ActivityTab, CollectorTab } from './ProjectCollector';
 import { toggle } from './rules';
@@ -39,7 +40,7 @@ export default function ProjectDetail() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, a.projects.title, project?.name ?? '…']} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), crumb(a.projects.title, '/admin/projects'), project?.name ?? '…']} />
       <PageHeader title={project?.name ?? a.projects.title} subtitle={project ? project.slug : undefined}
         right={<Link to="/admin/projects" className="text-[12px] font-semibold text-primary hover:underline">← {d.back}</Link>} />
       <AdminTabs />

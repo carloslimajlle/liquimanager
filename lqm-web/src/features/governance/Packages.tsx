@@ -14,6 +14,7 @@ import { useCan } from '../../auth/useCan';
 import { fill } from '../../i18n';
 import { useMessages } from '../../i18n/useMessages';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import GovernanceTabs from './GovernanceTabs';
 import { severityLabel } from './rules';
 
@@ -50,7 +51,7 @@ export function PackagesList() {
 
   return (
     <>
-      <Topbar trail={[t.governance.breadcrumbRoot, p.title]} />
+      <Topbar trail={[crumb(t.governance.breadcrumbRoot, '/govern'), p.title]} />
       <PageHeader
         title={p.title}
         subtitle={p.subtitle}
@@ -164,7 +165,7 @@ export function PackageEditor() {
 
   return (
     <>
-      <Topbar trail={[t.governance.breadcrumbRoot, p.title, creating ? e.titleNew : name]} />
+      <Topbar trail={[crumb(t.governance.breadcrumbRoot, '/govern'), crumb(p.title, '/govern/packages'), creating ? e.titleNew : name]} />
       <PageHeader title={creating ? e.titleNew : name} subtitle={p.subtitle} />
       <GovernanceTabs />
       {isDefault && <p className="mb-3 rounded-control bg-info-bg px-3 py-2 text-[12.5px] text-info">{e.defaultNotice}</p>}

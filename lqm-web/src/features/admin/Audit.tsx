@@ -17,6 +17,7 @@ import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatShortDateTime } from '../../lib/format';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { describeEvent } from '../access/SidePanels';
 
 const PAGE_SIZE = 25;
@@ -47,7 +48,7 @@ export default function Audit() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, u.title]} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), u.title]} />
       <PageHeader title={u.title} subtitle={u.subtitle}
         right={canExport && (
           <div className="flex gap-2">

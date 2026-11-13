@@ -23,6 +23,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime, formatNumber, formatPercent } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { isFailure, statusTone, stateTone } from '../operations/rules';
 import { ApprovalsTab, DriftTab, PipelinesTab, PoliciesTab } from './ProjectGovernance';
 import GenerateSql from './GenerateSql';
@@ -53,7 +54,7 @@ export default function ProjectHub() {
 
   return (
     <>
-      <Topbar trail={[t.app.name, p.title, project?.name ?? '…']} />
+      <Topbar trail={[crumb(t.app.name, '/'), crumb(p.title, '/projects'), project?.name ?? '…']} />
       <PageHeader title={project?.name ?? p.title} subtitle={project?.slug}
         right={(
           <>

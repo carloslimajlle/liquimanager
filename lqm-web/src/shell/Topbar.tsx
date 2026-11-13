@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react';
 import { LogOut } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { signOut } from '../auth/auth';
 import { useMe } from '../api/admin';
 import { useProfile } from '../auth/AuthGate';
 import { useMessages } from '../i18n/useMessages';
+import { crumbLabel, crumbTarget } from './crumbs';
+import type { Crumb } from './crumbs';
 import PendingBell from './PendingBell';
 
 function initialsOf(name: string): string {
@@ -16,7 +19,7 @@ export default function Topbar({
   trail,
   actions,
 }: {
-  trail: string[];
+  trail: Crumb[];
   actions?: ReactNode;
 }) {
   const t = useMessages();
@@ -32,9 +35,13 @@ export default function Topbar({
       <nav aria-label={t.nav.breadcrumbLabel} className="flex items-center gap-2 text-text-2">
         {trail.map((part, index) => {
           const last = index === trail.length - 1;
+          const label = crumbLabel(part);
+          const to = crumbTarget(part, last);
           return (
-            <span key={part} className="flex items-center gap-2">
-              {last ? <b className="text-text">{part}</b> : <span>{part}</span>}
+            <span key={`${index}-${label}`} className="flex items-center gap-2">
+              {last
+                ? <b className="text-text" aria-current="page">{label}</b>
+                : to ? <Link to={to} className="hover:text-text hover:underline">{label}</Link> : <span>{label}</span>}
               {!last && <span className="text-text-3" aria-hidden>›</span>}
             </span>
           );

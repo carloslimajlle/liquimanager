@@ -10,6 +10,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDurationParts, formatNumber } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import CodeEditor from './CodeEditor';
 import CommandModal from './CommandModal';
 import { commandFor, languageOf, locateChangesets, markersFor, problemsFor } from './rules';
@@ -45,7 +46,7 @@ export default function Developer() {
   const markers = useMemo(() => (data && path && path !== FLOW_FILE ? markersFor(located, data.changesets, path) : []), [data, path, located]);
   const problems = useMemo(() => (data && path ? problemsFor(data.findings, path, located) : []), [data, path, located]);
 
-  const trail = [d.breadcrumbRoot, d.breadcrumbList, data?.name ?? ''];
+  const trail = [crumb(d.breadcrumbRoot, '/developer'), crumb(d.breadcrumbList, '/developer'), data?.name ?? ''];
   const header = <PageHeader title={d.title} subtitle={d.subtitle} />;
 
   if (detail.isError) {

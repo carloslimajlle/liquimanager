@@ -17,6 +17,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDecimal, formatNumber, formatPercent, formatShortDateTime } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import RunDrawer from './RunDrawer';
 import { barWidths, driftTone, itemsLabel, rowTone, trend } from './rules';
 
@@ -78,7 +79,7 @@ export default function Drift() {
 
   return (
     <>
-      <Topbar trail={[d.breadcrumbRoot, d.title]} />
+      <Topbar trail={[crumb(d.breadcrumbRoot, '/operations'), d.title]} />
       <PageHeader
         title={d.title}
         subtitle={d.subtitle}

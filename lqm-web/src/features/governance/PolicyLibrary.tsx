@@ -15,6 +15,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatNumber } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import GovernanceTabs from './GovernanceTabs';
 import { severityLabel, severityTone } from './rules';
 
@@ -93,7 +94,7 @@ export default function PolicyLibrary() {
 
   return (
     <>
-      <Topbar trail={[t.governance.breadcrumbRoot, t.governance.library.title]} />
+      <Topbar trail={[crumb(t.governance.breadcrumbRoot, '/govern'), t.governance.library.title]} />
       <PageHeader
         title={t.governance.library.title}
         subtitle={t.governance.library.subtitle}

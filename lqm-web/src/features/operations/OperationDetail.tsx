@@ -19,6 +19,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime, formatDuration, formatShortDateTime } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import RollbackPanel from './RollbackPanel';
 import { isFailure, outcomeTone, statusTone, stateTone } from './rules';
 
@@ -54,7 +55,7 @@ export default function OperationDetail() {
     const forbidden = operation.error instanceof ApiError && operation.error.status === 403;
     return (
       <>
-        <Topbar trail={[t.detail.breadcrumbRoot, t.detail.notFound]} />
+        <Topbar trail={[crumb(t.detail.breadcrumbRoot, '/operations'), t.detail.notFound]} />
         <Card className="mt-3">
           {missing ? (
             <EmptyState
@@ -73,7 +74,7 @@ export default function OperationDetail() {
   if (!data) {
     return (
       <>
-        <Topbar trail={[t.detail.breadcrumbRoot, t.detail.breadcrumbMiddle, `database-change #${shortId}`]} />
+        <Topbar trail={[crumb(t.detail.breadcrumbRoot, '/operations'), crumb(t.detail.breadcrumbMiddle, '/operations'), `database-change #${shortId}`]} />
         <div className="mt-3 space-y-3" aria-busy="true" aria-label={t.common.loading}>
           <div className="h-10 w-72 animate-pulse rounded bg-border" />
           <div className="h-24 animate-pulse rounded-card bg-border" />
@@ -88,7 +89,7 @@ export default function OperationDetail() {
 
   return (
     <>
-      <Topbar trail={[t.detail.breadcrumbRoot, t.detail.breadcrumbMiddle, `database-change #${shortId}`]} />
+      <Topbar trail={[crumb(t.detail.breadcrumbRoot, '/operations'), crumb(t.detail.breadcrumbMiddle, '/operations'), `database-change #${shortId}`]} />
 
       <div className="mt-1.5 mb-3 flex items-center gap-3">
         <h1 className="text-[24px] font-bold tracking-[-0.02em]">{t.detail.title}</h1>

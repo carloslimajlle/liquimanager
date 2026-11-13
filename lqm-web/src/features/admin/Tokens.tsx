@@ -15,6 +15,7 @@ import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatShortDateTime } from '../../lib/format';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { usePaged } from './paging';
 import { stateOf, toggle } from './rules';
 
@@ -57,7 +58,7 @@ export default function Tokens() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, k.title]} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), k.title]} />
       <PageHeader title={k.title} subtitle={k.subtitle}
         right={editable && <button type="button" className={primaryButton} onClick={() => setCreating(true)}>{k.newToken}</button>} />
       <AdminTabs />

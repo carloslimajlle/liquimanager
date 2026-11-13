@@ -5,6 +5,7 @@ import PageHeader from '../../components/PageHeader';
 import { EmptyState, ErrorCard } from '../../components/States';
 import { useMessages } from '../../i18n/useMessages';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 
 /**
  * `/pipelines` is where the sidebar's "Automate" entry lands. There is no pipeline list
@@ -20,7 +21,7 @@ export default function PipelinesIndex() {
 
   return (
     <>
-      <Topbar trail={[t.matrix.breadcrumbRoot, t.matrix.title]} />
+      <Topbar trail={[crumb(t.matrix.breadcrumbRoot, '/pipelines'), t.matrix.title]} />
       <PageHeader title={t.matrix.title} subtitle={t.matrix.subtitle} />
       <div className="rounded-card border border-border bg-surface shadow-card">
         {pipelines.isError ? (

@@ -18,6 +18,7 @@ import { fill } from '../../i18n';
 import { useMessages } from '../../i18n/useMessages';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { usePaged } from './paging';
 
 /** /admin/pipelines (RF-CAD-06): a pipeline per project and, below the selected one, its stages in order. */
@@ -56,7 +57,7 @@ export default function Pipelines() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, p.title]} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), p.title]} />
       <PageHeader title={p.title} subtitle={p.subtitle}
         right={editable && <button type="button" className={primaryButton} onClick={() => setEditing('new')}>{p.newPipeline}</button>} />
       <AdminTabs />

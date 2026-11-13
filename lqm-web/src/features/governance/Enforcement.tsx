@@ -18,6 +18,7 @@ import { fill } from '../../i18n';
 import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatNumber, formatPercent, formatShortDateTime } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { ExceptionsPanel, RequestExceptionDialog } from './ExceptionsPanel';
 import GovernanceTabs from './GovernanceTabs';
 import { gateLabel, gateTone, severityEntries, severityLabel, severityTone } from './rules';
@@ -70,7 +71,7 @@ export default function Enforcement() {
   const pipelineId = params.get('pipeline') ?? pipelines.data?.[0]?.id;
   const enforcement = useEnforcement(pipelineId, period);
   const data = enforcement.data;
-  const trail = [t.governance.breadcrumbRoot, t.governance.enforcement.title];
+  const trail = [crumb(t.governance.breadcrumbRoot, '/govern'), t.governance.enforcement.title];
 
   if (!params.get('pipeline') && pipelines.data && pipelines.data.length > 0) {
     return <Navigate to={`/govern/enforcement?pipeline=${pipelines.data[0].id}`} replace />;

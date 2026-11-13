@@ -18,6 +18,7 @@ import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatShortDateTime } from '../../lib/format';
 import AdminTabs from '../../shell/AdminTabs';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import { usePaged } from './paging';
 
 const ENGINES = ['SQLSERVER', 'POSTGRESQL', 'ORACLE', 'MYSQL'];
@@ -85,7 +86,7 @@ export default function Connections() {
 
   return (
     <>
-      <Topbar trail={[a.breadcrumbRoot, c.title]} />
+      <Topbar trail={[crumb(a.breadcrumbRoot, '/admin'), c.title]} />
       <PageHeader title={c.title} subtitle={c.subtitle}
         right={editable && <button type="button" className={primaryButton} onClick={() => setEditing('new')}>{c.newConnection}</button>} />
       <AdminTabs />

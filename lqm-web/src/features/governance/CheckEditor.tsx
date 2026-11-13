@@ -9,6 +9,7 @@ import StatusBadge from '../../components/StatusBadge';
 import { useCan } from '../../auth/useCan';
 import { useMessages } from '../../i18n/useMessages';
 import Topbar from '../../shell/Topbar';
+import { crumb } from '../../shell/crumbs';
 import {
   APPLIES_TO, CONSTRAINTS, EDITABLE_KINDS, OPERATORS, STATEMENT_TYPES,
   emptyForm, fromCheck, parametersOf, toBody, toggle, validate,
@@ -70,7 +71,7 @@ export default function CheckEditor() {
 
   const categories = Array.from(new Set((all.data ?? []).map((c) => c.category))).sort();
   const memberChoices = (all.data ?? []).filter((c) => c.kind !== 'CHAINED' && c.code !== form.code);
-  const trail = [t.governance.breadcrumbRoot, t.governance.library.title, creating ? e.breadcrumbNew : form.code];
+  const trail = [crumb(t.governance.breadcrumbRoot, '/govern'), crumb(t.governance.library.title, '/govern/checks'), creating ? e.breadcrumbNew : form.code];
   const title = creating ? e.titleNew : t.governance.library.title;
 
   async function save() {
