@@ -41,7 +41,7 @@ Este diretório (`helm/`) traz o **Helm chart de produção** do LiquiManager e 
 
 ## 1. Imagens
 
-O chart usa por padrão as imagens públicas do Docker Hub, na tag igual ao `appVersion` do chart (`1.0.0`):
+O chart usa por padrão as imagens públicas do Docker Hub, na tag igual ao `appVersion` do chart (`1.1.0`):
 
 | Imagem | Para quê |
 |--------|----------|
@@ -52,9 +52,9 @@ O chart usa por padrão as imagens públicas do Docker Hub, na tag igual ao `app
 Para usar um espelho ou compilar as suas, o contexto de build é a **raiz deste repositório**:
 
 ```bash
-docker build -f lqm-api/Dockerfile -t meu-registry/lqm-api:1.0.0 .
-docker build -f lqm-web/Dockerfile -t meu-registry/lqm-web:1.0.0 .
-docker build -f lqm-cli/Dockerfile -t meu-registry/lqm-cli:1.0.0 .
+docker build -f lqm-api/Dockerfile -t meu-registry/lqm-api:1.1.0 .
+docker build -f lqm-web/Dockerfile -t meu-registry/lqm-web:1.1.0 .
+docker build -f lqm-cli/Dockerfile -t meu-registry/lqm-cli:1.1.0 .
 ```
 
 e aponte `images.registry` para `meu-registry` (e `images.pullSecrets`, se for privado). Mude as tags com `api.image.tag`, `web.image.tag` e `runner.image.tag`.
@@ -66,16 +66,16 @@ e aponte `images.registry` para `meu-registry` (e `images.pullSecrets`, se for p
 O chart é publicado como **OCI** no Docker Hub. Com o Helm 3.8+:
 
 ```bash
-helm install lqm oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.1.0 -n lqm --create-namespace -f values-producao.yaml
+helm install lqm oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.2.0 -n lqm --create-namespace -f values-producao.yaml
 ```
 
 Para ver os valores padrão e o exemplo de produção sem clonar o repositório:
 
 ```bash
-helm show values oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.1.0
+helm show values oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.2.0
 ```
 
-Os passos 2.1 a 2.3 abaixo valem do mesmo jeito; só troque `./helm/liquimanager` por `oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.1.0`.
+Os passos 2.1 a 2.3 abaixo valem do mesmo jeito; só troque `./helm/liquimanager` por `oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.2.0`.
 
 ### 2.1 Crie os Secrets (nenhuma senha vai para o `values`)
 
@@ -253,7 +253,7 @@ A imagem `lqm-cli` roda o comando na esteira. Exemplo mínimo:
 
 ```yaml
 .lqm:
-  image: carloslimadocker/lqm-cli:1.0.0
+  image: carloslimadocker/lqm-cli:1.1.0
   variables:
     LQM_URL: https://lqm.exemplo.com/api/v1
     LQM_PROJECT: $CI_PROJECT_NAME
@@ -341,7 +341,7 @@ helm registry login registry-1.docker.io -u carloslimadocker
 ```
 
 ```bash
-helm push liquimanager-0.1.0.tgz oci://registry-1.docker.io/carloslimadocker
+helm push liquimanager-0.2.0.tgz oci://registry-1.docker.io/carloslimadocker
 ```
 
 O Docker Hub cria o repositório `carloslimadocker/liquimanager` no primeiro push (de tipo "chart OCI"; deixe-o público).

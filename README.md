@@ -96,7 +96,7 @@ O chart de produção está em [`helm/`](helm/README.md), com o guia completo (S
 estão no Docker Hub (`carloslimadocker/lqm-api`, `lqm-web`, `lqm-cli`). Instalação direta a partir do repositório OCI do chart:
 
 ```bash
-helm install lqm oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.1.0 -n lqm --create-namespace -f values-producao.yaml
+helm install lqm oci://registry-1.docker.io/carloslimadocker/liquimanager --version 0.2.0 -n lqm --create-namespace -f values-producao.yaml
 ```
 
 ## Licença

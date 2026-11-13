@@ -15,7 +15,7 @@ fullnameOverride: ""
 # Imagens. Os tres Dockerfiles estao na raiz do repositorio (ver README, "Construindo as imagens").
 # --------------------------------------------------------------------------------------------------
 images:
-  # Prefixo do registry, sem barra no fim. Padrao: Docker Hub, usuario carloslimadocker (carloslimadocker/lqm-api:1.0.0 etc.).
+  # Prefixo do registry, sem barra no fim. Padrao: Docker Hub, usuario carloslimadocker (carloslimadocker/lqm-api:1.1.0 etc.).
   # Para um registry proprio (espelho), troque aqui.
   registry: carloslimadocker
   pullPolicy: IfNotPresent

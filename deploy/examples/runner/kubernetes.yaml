@@ -21,7 +21,7 @@ spec:
       terminationGracePeriodSeconds: 630
       containers:
         - name: runner
-          image: lqm-cli:1.0.0
+          image: carloslimadocker/lqm-cli:1.1.0
           args: ["runner"]
           env:
             - name: LQM_URL
