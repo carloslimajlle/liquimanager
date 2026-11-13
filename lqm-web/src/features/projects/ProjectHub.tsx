@@ -25,6 +25,7 @@ import { formatDateTime, formatNumber, formatPercent } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
 import { isFailure, statusTone, stateTone } from '../operations/rules';
 import { ApprovalsTab, DriftTab, PipelinesTab, PoliciesTab } from './ProjectGovernance';
+import GenerateSql from './GenerateSql';
 import { ReviewTab } from './ProjectReview';
 import { RollbackTab } from './ProjectRollback';
 
@@ -75,7 +76,7 @@ export default function ProjectHub() {
             ))}
           </div>
           {tab === 'summary' && <Summary projectId={project.id} slug={project.slug} onSeeOperations={() => choose('operations')} />}
-          {tab === 'changesets' && <Changesets projectId={project.id} />}
+          {tab === 'changesets' && <Changesets projectId={project.id} slug={project.slug} />}
           {tab === 'operations' && <Operations slug={project.slug} />}
           {tab === 'rollback' && <RollbackTab projectId={project.id} />}
           {tab === 'review' && <ReviewTab projectId={project.id} />}
@@ -146,7 +147,7 @@ function Summary({ projectId, slug, onSeeOperations }: { projectId: string; slug
 }
 
 /** Where each changeset of the project stands, one column per environment. */
-function Changesets({ projectId }: { projectId: string }) {
+function Changesets({ projectId, slug }: { projectId: string; slug: string }) {
   const t = useMessages();
   const c = t.projects.changesets;
   const locale = useLocale();
@@ -155,6 +156,7 @@ function Changesets({ projectId }: { projectId: string }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(0);
+  const [sqlOpen, setSqlOpen] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => { setQuery(search.trim()); setPage(0); }, 300);
     return () => clearTimeout(timer);
@@ -212,7 +214,10 @@ function Changesets({ projectId }: { projectId: string }) {
         <FilterSelect label={c.status} value={status} onChange={(value) => { setStatus(value); setPage(0); }}
           options={[{ value: '', label: c.allStatuses }, ...(['EXECUTED', 'FAILED', 'ROLLED_BACK', 'PENDING'] as const).map((key) => ({ value: key, label: t.projects.status[key] }))]} />
         <span className="ml-auto text-[12px] text-text-2">{fill(c.meta, { shown: list.data?.content.length ?? 0, total: formatNumber(total, locale) })}</span>
+        <button type="button" onClick={() => setSqlOpen(true)}
+          className="rounded-control border border-border px-3 py-1.5 text-[12px] font-semibold hover:bg-surface-alt">{t.projects.sql.button}</button>
       </div>
+      {sqlOpen && <GenerateSql projectId={projectId} project={slug} onClose={() => setSqlOpen(false)} />}
       {list.isError ? (
         <ErrorCard message={t.projects.loadError} onRetry={() => list.refetch()} />
       ) : list.data && list.data.content.length === 0 ? (

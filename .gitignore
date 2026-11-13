@@ -79,3 +79,6 @@ data/
 values-producao.yaml
 values-*.local.yaml
 *.secret.yaml
+
+# Pacotes de chart gerados por helm package
+liquimanager-*.tgz

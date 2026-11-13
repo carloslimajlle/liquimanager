@@ -1,6 +1,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { apiGet } from './client';
+import { sqlParams } from '../features/projects/sqlRules';
+import type { SqlDialect, SqlMode } from '../features/projects/sqlRules';
 import type { Page } from './operations';
 
 export type ChangesetStatus = 'EXECUTED' | 'FAILED' | 'ROLLED_BACK' | 'PENDING' | string;
@@ -165,4 +167,20 @@ export function useChangesetVersions(id: string | undefined) {
     enabled: !!id,
     retry: false,
   });
+}
+
+/** The SQL of a set of changesets, generated from the repository (nothing is executed). */
+export type ChangesetSqlResult = {
+  mode: 'CHANGESETS' | 'RELEASE' | 'TAG' | 'NOT_PROMOTED';
+  selection: string;
+  dialect: string;
+  count: number;
+  generated: number;
+  changesets: Array<{ id: string; changesetId: string; author: string; filePath: string; ref?: string | null; statements: number; warning?: string | null }>;
+  /** The whole script, commented per changeset. */
+  sql: string;
+};
+
+export function generateChangesetSql(projectId: string, mode: SqlMode, value: string, dialect: SqlDialect) {
+  return apiGet<ChangesetSqlResult>(`/projects/${projectId}/changesets/sql`, sqlParams(mode, value, dialect));
 }

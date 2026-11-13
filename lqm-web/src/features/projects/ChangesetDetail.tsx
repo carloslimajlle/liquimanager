@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
@@ -15,6 +16,7 @@ import { useLocale, useMessages } from '../../i18n/useMessages';
 import { formatDateTime } from '../../lib/format';
 import Topbar from '../../shell/Topbar';
 import ChangesetSource from './ChangesetSource';
+import GenerateSql from './GenerateSql';
 import { gateLabel, gateTone } from '../governance/rules';
 import { outcomeTone, stateTone } from '../operations/rules';
 
@@ -29,6 +31,7 @@ export default function ChangesetDetail() {
   const query = useChangeset(id);
   const versions = useChangesetVersions(id);
   const data = query.data;
+  const [sqlOpen, setSqlOpen] = useState(false);
   const when = (iso?: string | null) => (iso ? formatDateTime(iso, locale) : t.common.none);
   const statusText = (status: string) => p.status[status as keyof typeof p.status] ?? status;
 
@@ -74,9 +77,12 @@ export default function ChangesetDetail() {
         right={data && (
           <>
             <Link to={`/projects/${data.projectId}?tab=changesets`} className="text-[12px] font-semibold text-primary hover:underline">← {data.project}</Link>
+            <button type="button" onClick={() => setSqlOpen(true)}
+              className="rounded-control border border-border px-3 py-1.5 text-[12px] font-semibold hover:bg-surface-alt">{t.projects.sql.button}</button>
           </>
         )}
       />
+      {sqlOpen && data && <GenerateSql projectId={data.projectId} project={data.project} initial={{ mode: 'ids', value: data.id }} onClose={() => setSqlOpen(false)} />}
       {query.isError ? (
         query.error instanceof ApiError && query.error.status === 403
           ? <EmptyState title={t.common.forbidden} />

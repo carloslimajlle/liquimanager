@@ -464,6 +464,60 @@ paths:
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
+  /projects/{id}/changesets/sql:
+    get:
+      tags: [Catalog]
+      operationId: getProjectChangesetsSql
+      summary: The SQL of a set of changesets, generated from the repository without running anything
+      description: |
+        For whoever applies a change by hand (a DBA, a window, a database no collector reaches). Choose the set with exactly ONE of
+        `ids`, `release` (the `release-*` label), `tag` (the changesets of the operations that carried that Liquibase tag) or `notIn`
+        (an environment code: what ran in an earlier environment and has not run there yet). Anything else is 422.
+
+        Each file is read from the repository (the default branch first, then the commits of the operations that evaluated it; `ref`
+        forces one) and generated against an OFFLINE database of the dialect, with the same generation the collectors and the policy
+        checks use. `dialect` is the one asked for, else the engine of the target environment, else the most common one the changesets ran
+        on, else `mssql`. A changeset whose SQL could not be generated stays in `changesets` with a `warning` (`NO_REPOSITORY`,
+        `NOT_CONFIGURED`, `NOT_FOUND`, `UNREACHABLE`, `NOT_IN_FILE`, `NO_SQL`, `UNPARSEABLE`), so one bad file does not hide the rest.
+        At most 300 changesets (422 beyond that). `sql` is the whole script, commented per changeset, in execution order of the project.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: ids, in: query, schema: { type: array, items: { type: string, format: uuid } }, explode: false, description: Changeset ids }
+        - { name: release, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: notIn, in: query, schema: { type: string }, description: Environment code }
+        - { name: dialect, in: query, schema: { type: string, enum: [mssql, postgresql, oracle, mysql] } }
+        - { name: ref, in: query, schema: { type: string }, description: "A branch, tag or commit id to read the files from" }
+      responses:
+        '200':
+          description: The script and what became of each changeset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode: { type: string, enum: [CHANGESETS, RELEASE, TAG, NOT_PROMOTED] }
+                  selection: { type: string }
+                  dialect: { type: string, enum: [mssql, postgresql, oracle, mysql] }
+                  count: { type: integer, description: "Changesets in the selection" }
+                  generated: { type: integer, description: "Of those, the ones with SQL" }
+                  changesets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        changesetId: { type: string }
+                        author: { type: string }
+                        filePath: { type: string }
+                        ref: { type: string, description: Where the file was read from }
+                        statements: { type: integer }
+                        warning: { type: string, enum: [NO_REPOSITORY, NOT_CONFIGURED, NOT_FOUND, UNREACHABLE, NOT_IN_FILE, NO_SQL, UNPARSEABLE] }
+                  sql: { type: string }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+
   /changesets/{id}/versions:
     get:
       tags: [Catalog]
