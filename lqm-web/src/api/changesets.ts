@@ -184,3 +184,28 @@ export type ChangesetSqlResult = {
 export function generateChangesetSql(projectId: string, mode: SqlMode, value: string, dialect: SqlDialect) {
   return apiGet<ChangesetSqlResult>(`/projects/${projectId}/changesets/sql`, sqlParams(mode, value, dialect));
 }
+
+/** What a set of changesets does to the tables SQL Server Change Data Capture tracks in a database, and the recapture to add. */
+export type CdcResult = {
+  mode: string;
+  selection: string;
+  connection: { id: string; slug: string };
+  cdcEnabled: boolean;
+  trackedTables: number;
+  count: number;
+  /** Changesets whose SQL could not be generated, so nothing is known about them. */
+  unknown: number;
+  /** Tracked tables that a changeset can break. */
+  breaking: number;
+  changesets: Array<{
+    id: string; changesetId: string; author: string; filePath: string; warning?: string | null;
+    impacts: Array<{ table: string; kind: string; detail?: string | null; breaking: boolean; needsRecapture: boolean }>;
+  }>;
+  tables: Array<{ table: string; instances: string[] }>;
+  notes: string[];
+  recapture?: { tables: string[]; createSql: string; removeSql: string; createChangesets: string; removeChangesets: string; notes: string[] };
+};
+
+export function checkChangesetCdc(projectId: string, mode: SqlMode, value: string, connection: string) {
+  return apiGet<CdcResult>(`/projects/${projectId}/changesets/cdc`, { ...sqlParams(mode, value, ''), connection });
+}

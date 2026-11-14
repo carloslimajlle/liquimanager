@@ -6,6 +6,7 @@ import type { ChangesetSqlResult } from '../../api/changesets';
 import CodeBlock from '../../components/CodeBlock';
 import { Field, fieldClass, primaryButton, secondaryButton } from '../../components/FormDialog';
 import StatusBadge from '../../components/StatusBadge';
+import CdcPanel from './CdcPanel';
 import { fill } from '../../i18n';
 import { useMessages } from '../../i18n/useMessages';
 import { canGenerate, SQL_DIALECTS, SQL_MODES, sqlFileName } from './sqlRules';
@@ -123,6 +124,8 @@ export default function GenerateSql({
             {result.generated > 0 && <CodeBlock copyable>{result.sql}</CodeBlock>}
           </section>
         )}
+
+        {result && result.dialect === 'mssql' && <CdcPanel projectId={projectId} mode={mode} value={environment} />}
 
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={secondaryButton}>{s.close}</button>

@@ -518,6 +518,85 @@ paths:
         '404': { $ref: '#/components/responses/NaoEncontrado' }
         '422': { $ref: '#/components/responses/PayloadInvalido' }
 
+  /projects/{id}/changesets/cdc:
+    get:
+      tags: [Catalog]
+      operationId: getProjectChangesetsCdc
+      summary: What a set of changesets does to the SQL Server tables that Change Data Capture tracks, and the recapture that fixes it
+      description: |
+        SQL Server only. Chooses the set like `/projects/{id}/changesets/sql` (exactly ONE of `ids`, `release`, `tag` or `notIn`) and reads
+        the SQL that endpoint generates for `mssql`. `connection` is the database the changesets are going to: its catalogue is read
+        (queries only, with the account of its secret) for the tables CDC tracks and their capture instances. Needs the permission of a
+        drift run, because it opens the monitored database.
+
+        A capture instance takes the columns the table has on the day it is created, so a changeset that adds, retypes, drops or renames
+        a column of a tracked table leaves it out of step. Each changeset lists its `impacts` (`COLUMN_ADDED`, `COLUMN_ALTERED`,
+        `COLUMN_DROPPED`, `COLUMN_RENAMED`, `TABLE_RENAMED`, `TABLE_DROPPED`; `breaking` is false only for a new column). `recapture`,
+        when something needs it, carries the two steps as T-SQL and as Liquibase changesets with an explicit rollback: create the
+        next capture instance (while the current one keeps capturing), and remove the old one in a LATER release, once the consumer
+        reads the new one. A changeset whose SQL could not be generated has a `warning` and no impacts: what it does to CDC is not known.
+        422 when the connection is not SQL Server; 502 `LQM-050` when the CDC catalogue of the database cannot be read.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: connection, in: query, required: true, schema: { type: string, format: uuid }, description: "The database the changesets are going to" }
+        - { name: ids, in: query, schema: { type: array, items: { type: string, format: uuid } }, explode: false }
+        - { name: release, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: notIn, in: query, schema: { type: string }, description: Environment code }
+        - { name: ref, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: The impacts and the recapture
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode: { type: string }
+                  selection: { type: string }
+                  connection: { type: object, properties: { id: { type: string, format: uuid }, slug: { type: string } } }
+                  cdcEnabled: { type: boolean, description: "False when CDC is not on in the database: nothing to recapture" }
+                  trackedTables: { type: integer }
+                  count: { type: integer }
+                  unknown: { type: integer, description: "Changesets whose SQL could not be generated" }
+                  breaking: { type: integer, description: "Tracked tables that a changeset can break" }
+                  changesets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        changesetId: { type: string }
+                        author: { type: string }
+                        filePath: { type: string }
+                        warning: { type: string }
+                        impacts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              table: { type: string, description: "schema.table" }
+                              kind: { type: string, enum: [COLUMN_ADDED, COLUMN_ALTERED, COLUMN_DROPPED, COLUMN_RENAMED, TABLE_RENAMED, TABLE_DROPPED] }
+                              detail: { type: string }
+                              breaking: { type: boolean }
+                              needsRecapture: { type: boolean }
+                  tables:
+                    type: array
+                    items: { type: object, properties: { table: { type: string }, instances: { type: array, items: { type: string } } } }
+                  notes: { type: array, items: { type: string } }
+                  recapture:
+                    type: object
+                    properties:
+                      tables: { type: array, items: { type: string } }
+                      createSql: { type: string }
+                      removeSql: { type: string }
+                      createChangesets: { type: string, description: "Liquibase XML, one changeset per table; goes right after the changeset that alters it" }
+                      removeChangesets: { type: string, description: "Liquibase XML; for a later release" }
+                      notes: { type: array, items: { type: string } }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '422': { $ref: '#/components/responses/PayloadInvalido' }
+
   /changesets/{id}/versions:
     get:
       tags: [Catalog]

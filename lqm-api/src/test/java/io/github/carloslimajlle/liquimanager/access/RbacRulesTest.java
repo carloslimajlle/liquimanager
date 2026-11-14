@@ -37,6 +37,7 @@ class RbacRulesTest {
             "POST,/access-requests/x/dismiss,assignment:admin",
             "GET,/projects/x/changesets/in-review,assignment:view",
             "GET,/projects/x/changesets/sql,assignment:view",
+            "GET,/projects/x/changesets/cdc,drift:run",
             "POST,/projects/x/changesets/in-review/close,catalog:edit",
             "POST,/projects/x/changesets/in-review/reopen,catalog:edit",
             "GET,/promotions,assignment:view",

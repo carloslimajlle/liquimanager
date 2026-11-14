@@ -75,6 +75,8 @@ public final class RbacRules {
 
             rule("POST", "/connections/[^/]+/drift-(runs|reference)", "drift:run"),
             rule("POST", "/connections/[^/]+/scan", "drift:run"),
+            // Opens the monitored database (queries only) to read which tables CDC tracks, so it asks what drift asks.
+            rule("GET", "/projects/[^/]+/changesets/cdc", "drift:run"),
             rule("POST", "/drift/runs/[^/]+/changelog", "drift:run"),
             rule("POST", "/drift/items/[^/]+/accept", "drift:accept"),
 
